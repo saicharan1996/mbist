@@ -1,0 +1,3467 @@
+// ===========================================================================
+// (c) Copyright 2023, Qualinx BV. All rights Reserved.
+//
+// Date         :    2023/10/07
+// Project name :    GNSS
+// Unit name    :    mramcntr
+// Author(s)    :    Glenn Ramalho, RFiDo Design
+//
+// Abstract     :    This is the AHB part of a MRAM memory controller.
+//
+// Note         :    
+//
+// $Revision: 46 $
+// $Log: Revision 46 2023/08/29 02:55:46 GMT gramalho $
+//   Fixed a problem with the diag and the checkerboard checking.
+// 
+//  Revision 45 2023/08/28 23:06:26 GMT gramalho
+//   Added some extra tests to handle just the NVR or just the chip erase.
+// 
+//  Revision 44 2023/08/28 18:09:40 GMT gramalho
+//   Working on the MBIST. The simpler FSM is getting messy. Trying to slice
+//   the tests.
+// 
+//  Revision 43 2023/08/28 15:32:37 GMT gramalho
+//   Fixed an issue with the timing of the MBIST signal to enter the modes. Got
+//   some of the basic commands to pass.
+// 
+//  Revision 42 2023/08/25 20:58:47 GMT gramalho
+//   Had to rearrange the MBIST states to get them to pass.
+// 
+//  Revision 41 2023/08/24 20:53:39 GMT gramalho
+//   Added a system to tie multiple MBIST commands into one sequence. Also
+//   added the tADSx to the MBIST writes. Added the pre-erase to the mbists
+//   commands that need it.
+// 
+//  Revision 40 2023/08/24 19:36:22 GMT gramalho
+//   Flipped the counter around as this way we save power and it makes also the
+//   FSM a little simpler.
+// 
+//  Revision 39 2023/08/23 20:43:00 GMT gramalho
+//   Added the write verifies.
+// 
+//  Revision 38 2023/08/23 19:45:00 GMT gramalho
+//   Got some of the basic MBIST write patterns to work.
+// 
+//  Revision 37 2023/08/23 18:08:30 GMT gramalho
+//   Started adding the MBIST circuit. Also changed the mdi/mdo to include the
+//   ECC bits as it is needed by the MBIST.
+// 
+//  Revision 36 2023/08/22 19:15:38 GMT gramalho
+//   Patched some blocking assigns in sequential blocks.
+// 
+//  Revision 35 2023/08/22 19:03:29 GMT gramalho
+//   Inverted the erase so that we erase ones and program zeroes.
+// 
+//  Revision 34 2023/08/22 02:21:17 GMT gramalho
+//   Changed datawr to clear to all ones so that the partial writes would work.
+// 
+//  Revision 33 2023/08/22 01:47:55 GMT gramalho
+//   Fixed a bug with the saddr match and saddr match next.
+// 
+//  Revision 32 2023/08/22 00:49:03 GMT gramalho
+//   Moved the signals for the first address collect into WREADY.
+// 
+//  Revision 31 2023/08/21 20:51:52 GMT gramalho
+//   Inverted the mdo input as it is defaulting to high after erase, like flash,
+//   and not low as originally assumed.
+// 
+//  Revision 30 2023/08/21 19:54:05 GMT gramalho
+//   Patched the config part to match the config timing.
+// 
+//  Revision 29 2023/08/18 20:23:12 GMT gramalho
+//   Minor adjust to the tMEN time.
+// 
+//  Revision 28 2023/08/18 20:15:04 GMT gramalho
+//   Found a case if there is a last mword write after the PROGEN then it would
+//   hang. Added a direct path from WPULSE to WNEXTPULSE. Also renamed the old
+//   WCOLLECTNEXT to WNEXTPULSE.
+// 
+//  Revision 27 2023/08/18 19:59:34 GMT gramalho
+//   Redid the waddr and saddr to split them into fields to make it simpler
+//   to check, without the macros. Also introduced the WCOLLECT state to
+//   handle multiple writes to one write.
+// 
+//  Revision 26 2023/08/18 17:57:53 GMT gramalho
+//   Changed the maddr and mdi muxes to use the merase and mprog flops and not
+//   the FSM signals to reduce the chance of glitches on these lines.
+// 
+//  Revision 25 2023/08/18 17:43:38 GMT gramalho
+//   Added support for the PEON.
+// 
+//  Revision 24 2023/08/18 01:15:18 GMT gramalho
+//   Fixed the reset req to reset the FSM and erase/prog signals and the read
+//   FSM and the OTP reader.
+// 
+//  Revision 23 2023/08/17 20:09:03 GMT gramalho
+//   Corrected the erase signals to match the actual datasheet.
+// 
+//  Revision 23 2023/08/17 20:09:02 GMT gramalho
+//   Corrected the erase signals to match the actual datasheet.
+// 
+//  Revision 22 2023/08/17 02:51:39 GMT gramalho
+//   Fixed an issue with the TMEN timing.
+// 
+//  Revision 21 2023/08/17 01:31:33 GMT gramalho
+//   Changed the NVR to now be automatic based off addresses. Got the basic test
+//   working.
+// 
+//  Revision 20 2023/07/25 21:02:41 GMT gramalho
+//   Added the NVR mode and the nvr and tmen outputs.
+// 
+//  Revision 19 2023/07/25 20:23:56 GMT gramalho
+//   Added the ECC bypass mode and signal. Also fixed a bug with the ERSPGM
+//   mode.
+// 
+//  Revision 18 2023/07/25 16:36:58 GMT gramalho
+//   Fixed a problem with the reset req where it was freezing up. Also
+//   corrected a typo in a wire declaration.
+// 
+//  Revision 17 2023/07/25 16:12:16 GMT gramalho
+//   Added an interface to read and change the CFG with the APB. Also added a
+//   test for the different read modes. Fixed a bug with the MDLY.
+// 
+//  Revision 16 2023/07/24 22:23:31 GMT gramalho
+//   Added support for downloading the config information from the OTP and
+//   uploading it into the MRAM and the internal registers.
+// 
+//  Revision 15 2023/07/21 22:04:35 GMT gramalho
+//   Connected the reset req.
+// 
+//  Revision 14 2023/07/21 21:58:54 GMT gramalho
+//   Added the end of command flags.
+// 
+//  Revision 13 2023/07/21 21:50:51 GMT gramalho
+//   Added the APB interface and connected it to the controller.
+// 
+//  Revision 12 2023/07/18 02:18:45 GMT gramalho
+//   Got the word and sector erase working.
+// 
+//  Revision 11 2023/07/18 00:43:17 GMT gramalho
+//   Made a better way to latch the next saddr, removing the saddr_next_ld.
+// 
+//  Revision 10 2023/07/17 20:49:12 GMT gramalho
+//   Fixed an issue with the saddr next loading where it was skipping the
+//   first word.
+// 
+//  Revision 10 2023/07/17 20:49:11 GMT gramalho
+//   Fixed an issue with the saddr next loading where it was skipping the
+//   first word.
+// 
+//  Revision 9 2023/07/16 01:52:59 GMT gramalho
+//   Got the program and reads with bursts and jumping around to work.
+// 
+//  Revision 8 2023/07/13 17:12:49 GMT gramalho
+//   Added shutdown and powerdown states and inputs.
+// 
+//  Revision 7 2023/07/12 20:55:03 GMT gramalho
+//   Found out that the hwrite was inverted for the erases.
+// 
+//  Revision 6 2023/07/12 20:14:05 GMT gramalho
+//   Fixed the address check when placing data to write into the buffer.
+// 
+//  Revision 5 2023/07/12 18:46:02 GMT gramalho
+//   Changed the RTL to use a mode field..
+// 
+//  Revision 4 2023/07/11 20:34:02 GMT gramalho
+//   Minor patch.
+// 
+//  Revision 3 2023/07/11 20:28:30 GMT gramalho
+//   Ran hal and fixed several issues.
+// 
+//  Revision 2 2023/07/11 18:37:40 GMT gramalho
+//   Adding the program and erase modes.
+// 
+//  Revision 1 2023/07/11 02:54:11 GMT gramalho
+//   Initial revision.
+// ============================================================================
+`timescale 1ns/1ns
+
+module mramcntr_ahb #(parameter HADDR_WIDTH = 32, DATA_WIDTH = 32,
+  MADDR_WIDTH = 18, MW_WORDS = 4, ECC_WIDTH = 16, CONFIGLASTBITS = 19,
+  CONFIGCYCS = 8, Y_WIDTH = 7, X_WIDTH = MADDR_WIDTH - Y_WIDTH, ROW_WIDTH = 2,
+  NOQUICKHREAD = 1'b1)
+
+  (
+    // AHB interface
+    input  wire                      hclk_i,
+    input  wire                      hclkg_i,
+    input  wire                      hreset_n_i,
+    input  wire                      hsel_i,
+    input  wire    [HADDR_WIDTH-1:0] haddr_i,
+    input  wire                      hwrite_i,
+    input  wire                [1:0] htrans_i,
+    input  wire                [2:0] hsize_i,
+    input  wire                [3:0] hprot_i,
+    input  wire                [2:0] hburst_i,
+    input  wire     [DATA_WIDTH-1:0] hwdata_i,
+    output reg      [DATA_WIDTH-1:0] hrdata_o,
+    output reg                       hready_o,
+    output wire                [1:0] hresp_o,
+
+    // MRAM interface
+    output reg                       mret_n_o,
+    output reg                       mrst_n_o,
+    output reg                       mpor_n_o,
+    output wire                      mclk_o,
+    output reg                       mrd_o,
+    output reg                       mce_n_o,
+    output wire                      mwe_n_o,
+    output reg                       mprog_o,
+    output reg                       mprogen_o,
+    output reg                       merase_o,
+    output reg                       msce_o,
+    output reg                       mchip_o,
+    output reg     [MADDR_WIDTH-1:0] maddr_o,
+    output reg  [ECC_WIDTH+DATA_WIDTH*MW_WORDS-1:0] mdi_o,
+    input  wire [ECC_WIDTH+DATA_WIDTH*MW_WORDS-1:0] mdo_i,
+    input  wire                      done_i,
+    input  wire                      mrdy_i,
+    input  wire                      ec_i,
+    input  wire                      ud_i,
+    output reg                       mdpd_o,
+    output reg                       mnvr_o,
+    output reg                       mtmen_o,
+    output reg                       mshift_o,
+    output wire                      msdi_o,
+    output reg                       msclk_o,
+    output reg                       msupd_o,
+    input  wire                      msdo_i,
+    output wire                      mpeon_o,
+    output wire                      meccbyps_o,
+    
+    // Reg Interface
+    output reg                       rstreqdone_o,
+    output reg                       progdone_o,
+    output reg                       ersdone_o,
+    output wire                      ecor_o,
+    output wire                      eunc_o,
+    output reg                       erc_o,
+    input  wire                [2:0] mrcxctrl_mode_i,
+    input  wire                      mrcxctrl_nvrok_i,
+    input  wire                      mrcxctrl_peon_i,
+    input  wire                      mrcxctrl_rstreq_i,
+    output wire                [5:0] satrim_o,
+    output wire                [5:0] vbitd_o,
+    output wire                [5:0] vbitu_o,
+    output wire                [3:0] zcal_o,
+    output wire               [15:0] fbc_o,
+    output wire                [7:0] fbc_nvr_o,
+    output wire                [7:0] fbc_fatal_o,
+    input  wire                      mrcxtrim_we_i,
+    input  wire                [5:0] mrcxtrim_satrim_i,
+    input  wire                [5:0] mrcxtrim_vbitd_i,
+    input  wire                [5:0] mrcxtrim_vbitu_i,
+    input  wire                [3:0] mrcxtrim_zcal_i,
+    output wire                [9:0] redcel0_o,
+    output wire                [9:0] redcel1_o,
+    output wire                [9:0] redcel2_o,
+    input  wire                [9:0] mrcxred0_i,
+    input  wire                [9:0] mrcxred1_i,
+    input  wire                [9:0] mrcxred2_i,
+    input  wire                [2:0] mrcxred_we_i,
+    output wire                cfgwrok_o,
+    input  wire                cfgwr_i,
+    input  wire                [31:0] cfgdin_i,
+    input  wire                [3:0] mrcxop_userdy_i,
+    input  wire                [3:0] mrcxop_addi_i,
+    input  wire                [2:0] mrcxop_div_i,
+    input  wire                      mrcxop_aburst_i,
+
+    // Other
+    input  wire                      bypecc_static_i,
+    input  wire                      mbist_i,
+    input  wire                [4:0] mbisttest_i,
+    input  wire                [1:0] mbistverif_i,
+    output reg                       mbist_done_o,
+    output wire                      mbist_busy_o,
+    output wire                [4:0] mbist_pass_o,
+
+    // Powerdown
+    input  wire                      powerdown_i,
+    input  wire                      deeppowerdown_i,
+    input  wire                      standby_i
+  );
+
+// State
+reg [5:0] state, nextstate;
+parameter INACTIVE = 6'b000000,
+   INVALID = 6'b000001,
+   READPEND = 6'b000010,
+   READFIRST = 6'b000011,
+   READVALID = 6'b000100,
+   DELRD = 6'b000101,
+   RDWAIT_TTMH = 6'b000110,
+   READREQN = 6'b000111,
+   WAIT_TTMR = 6'b001000,
+   WAIT_TTMH = 6'b001001,
+   WAIT_TPGS = 6'b001010,
+   WPULSE = 6'b001011,
+   WCOLLECT = 6'b001100,
+   WTADSY = 6'b001101,
+   WNEXTPULSE = 6'b001110,
+   PENALTYBOX = 6'b001111,
+   OFF = 6'b100000,
+   WAITRSTB = 6'b100001,
+   CFGSUR = 6'b100011,
+   CFGSUW = 6'b100100,
+   CFGPOSTWAIT = 6'b100101,
+   CFGWAIT = 6'b101000,
+   CFGLD = 6'b101001,
+   CFGRAISECLK = 6'b101010,
+   CFGCLKHIGH = 6'b101011,
+   CFGCLKLOW1 = 6'b101100,
+   CFGCLKLOW2 = 6'b101101,
+   CFGCLKLOW3 = 6'b101110,
+   CFGCLKLOWLAST = 6'b101111,
+   MBIST = 6'b010000,
+   MBIST_ERS = 6'b010001,
+   MBIST_ERS_NVR = 6'b010010,
+   WAIT_ERS_TRW = 6'b010011,
+   MBIST_WRITE = 6'b010100,
+   MBIST_WRITE_NVR = 6'b010101,
+   WAIT_PROG_TRW = 6'b010110,
+   MBIST_VERIFY = 6'b010111,
+   MBIST_PEND = 6'b011000,
+   MBIST_RETURN = 6'b110000,
+   MBIST_RETURNRESP = 6'b110001,
+   MBIST_FBC = 6'b011011,
+   MBIST_TTMR_VERIFY = 6'b011001,
+   MBIST_TTMH_VERIFY = 6'b011010,
+   FULLRST = 6'b011100,
+   RETB = 6'b011101,
+   PD = 6'b011110,
+   DPD = 6'b011111;
+parameter MWADDR_WIDTH = $clog2(MW_WORDS);
+parameter BUFFERABLE = 2;
+parameter CACHEABLE = 3;
+parameter RDDLY_25  = 4'd0;
+parameter RDDLY_50  = 4'd1;
+parameter RDDLY_75  = 4'd2;
+parameter RDDLY_100 = 4'd2;
+parameter RDDLY_125 = 4'd3;
+parameter RDDLY_150 = 4'd4;
+parameter RDDLY_200 = 4'd5;
+parameter RDDLY_250 = 4'd6;
+parameter CLKRATE_25  = 3'b000;
+parameter CLKRATE_50  = 3'b001;
+parameter CLKRATE_75  = 3'b010;
+parameter CLKRATE_100 = 3'b011;
+parameter CLKRATE_125 = 3'b100;
+parameter CLKRATE_150 = 3'b101;
+parameter CLKRATE_200 = 3'b110;
+parameter CLKRATE_250 = 3'b111;
+wire done_sync;
+
+// Modes
+parameter [2:0] MODE_READ = 3'b000;
+parameter [2:0] MODE_PGM = 3'b001;
+parameter [2:0] MODE_ERSPGM = 3'b010;
+parameter [2:0] MODE_ERS = 3'b011;
+parameter [2:0] MODE_SERS = 3'b100;
+parameter [2:0] MODE_CERS = 3'b101;
+wire writeok;
+
+// Delays
+`define M(v) ((v)+v/16'd10)
+parameter [15:0] TRT_WAIT = `M(16'd300);
+parameter [15:0] TPW_WAIT = `M(16'd10000);
+parameter [15:0] TRD_WAIT = 16'd5+16'd1;
+parameter [15:0] TRH_WAIT = `M(16'd2000);
+parameter [15:0] TRSR_WAIT = 16'd5+16'd1;
+parameter [15:0] TSUR_WAIT = 16'd6+16'd1;
+parameter [15:0] TSUW_WAIT = 16'd5+16'd1;
+parameter [15:0] TRSW_WAIT = `M(16'd200);
+parameter [15:0] TRSWSCAN_WAIT = `M(16'd500);
+parameter [15:0] TTMH_WAIT = `M(16'd10);
+parameter [15:0] TTMR_WAIT = `M(16'd10);
+parameter [15:0] TPGS_WAIT = `M(16'd2000);
+parameter [15:0] TPGSP_WAIT = 16'd1+16'd1;
+parameter [15:0] TCFGWAIT = `M(16'd2000);
+parameter [15:0] TRW_WAIT = `M(16'd300);
+parameter [15:0] TRWP_WAIT = 16'd1+16'd1;
+parameter [15:0] TADSX_WAIT = `M(16'd10);
+parameter [15:0] TADSY_WAIT = 16'd1+16'd1;
+parameter [15:0] TDPDS_WAIT = `M(16'd10);
+parameter [15:0] TDPDH_WAIT = `M(16'd2000);
+parameter [15:0] TCKH_WAIT = 16'd3+16'd1;
+// The datasheet says that tCKH is 30ns, but in the test document waveforms this
+// time is doubled.
+parameter [15:0] TCKHM_WAIT = 16'd6+16'd1;
+`undef M
+// MBIST Codes
+parameter [4:0] MBIST_NONE = 5'd0;
+parameter [4:0] MBIST_CFGRSTTEST = 5'd1;
+parameter [4:0] MBIST_CFG1TEST = 5'd2;
+parameter [4:0] MBIST_CFGSETTEST = 5'd3;
+parameter [4:0] MBIST_CFG0TEST = 5'd4;
+parameter [4:0] MBIST_CFGLDTEST = 5'd5;
+parameter [4:0] MBIST_SATRIMP = 5'd6;
+parameter [4:0] MBIST_SATRIMN = 5'd7;
+parameter [4:0] MBIST_SATRIM_DONE = 5'd8;
+parameter [4:0] MBIST_VBITD = 5'd9;
+parameter [4:0] MBIST_VBITU = 5'd10;
+parameter [4:0] MBIST_WR1 = 5'd11;
+parameter [4:0] MBIST_WR0 = 5'd12;
+parameter [4:0] MBIST_WLK1 = 5'd13;
+parameter [4:0] MBIST_WLK0 = 5'd14;
+parameter [4:0] MBIST_CERS = 5'd15;
+parameter [4:0] MBIST_NVRERS = 5'd16;
+parameter [4:0] MBIST_CKBD = 5'd17;
+parameter [4:0] MBIST_SERS = 5'd18;
+parameter [4:0] MBIST_ICKBD = 5'd19;
+parameter [4:0] MBIST_CERS_ECC = 5'd20;
+parameter [4:0] MBIST_NVRERS_ECC = 5'd21;
+parameter [4:0] MBIST_CKBD_ECC = 5'd22;
+parameter [4:0] MBIST_SERS_ECC = 5'd23;
+parameter [4:0] MBIST_ICKBD_ECC = 5'd24;
+parameter [4:0] MBIST_ZCAL = 5'd25;
+parameter [4:0] MBIST_REDUNDANCY = 5'd26;
+parameter [4:0] MBIST_RD1 = 5'd27;
+parameter [4:0] MBIST_RD0 = 5'd28;
+parameter [4:0] MBIST_DUMP = 5'd29;
+parameter [4:0] MBIST_ZERORET = 5'd30;
+parameter [4:0] MBIST_ONERET = 5'd31;
+parameter [4:0] MBIST_EXIT = 5'd31;
+
+// Verif field
+parameter [1:0] MBIST_NOVERIF = 2'b00;
+parameter [1:0] MBIST_STDVERIF = 2'b01;
+parameter [1:0] MBIST_FULLVERIF = 2'b10;
+parameter [1:0] MBIST_REPAIR = 2'b11;
+
+// Redundancy field
+parameter [1:0] MRED_CLR = 2'b00;
+parameter [1:0] MRED_ACT = 2'b01;
+parameter [1:0] MRED_NONE = 2'b10;
+parameter [1:0] MRED_REPAIR = 2'b11;
+
+// AHB
+parameter HTRANS_IDLE = 2'b00;
+parameter HTRANS_BUSY = 2'b01;
+parameter HTRANS_NONSEQ = 2'b10;
+parameter HTRANS_SEQ = 2'b11;
+parameter HBURST_SINGLE = 3'b000;
+parameter HBURST_INCR = 3'b001;
+parameter HBURST_WRAP4 = 3'b010;
+parameter HBURST_INCR4 = 3'b011;
+parameter HBURST_WRAP8 = 3'b100;
+parameter HBURST_INCR8 = 3'b101;
+parameter HBURST_WRAP16 = 3'b110;
+parameter HBURST_INCR16 = 3'b111;
+
+// FBC Constants
+parameter FBC_TARG = 31;
+parameter FBC_NVR_TARG = 2;
+parameter FBC_WIDTH = 16;
+parameter FBCNVR_WIDTH = 8;
+parameter FBC_FAIL_WIDTH = $clog2(ECC_WIDTH + DATA_WIDTH * MW_WORDS);
+parameter TRIPPLE_WIDTH = (ECC_WIDTH + DATA_WIDTH * MW_WORDS) /3;
+
+// REFTRIM
+parameter SATRIM_MAX = 6'd50;
+parameter SATRIM_MID = 6'd20;
+parameter SATRIM_MIN = 6'd0;
+parameter SATRIM_OFFSET = 6'd2;
+parameter VBITU_START = 6'd33;
+parameter VBITU_MAX = 6'd32;
+parameter VBITU_MIN = 6'd20;
+parameter VBITU_MID = (VBITU_MAX + VBITU_MIN) / 2;
+parameter VBITU_OFFSET = 6'd1;
+parameter VBITD_START = 6'd43;
+parameter VBITD_MAX = 6'd41;
+parameter VBITD_MIN = 6'd30;
+parameter VBITD_MID = (VBITD_MAX + VBITD_MIN) / 2;
+parameter VBITD_OFFSET = 6'd2;
+parameter VBITPH_STARTADDR = 'd304;
+parameter R0_WWL_SPEC = 10;
+parameter R0_FULL_SPEC = 15;
+parameter R1_WWL_SPEC = 52;
+parameter R1_FULL_SPEC = 15;
+parameter ZCAL_START = 4'b0111;
+
+// Address latches
+reg saddr_ld, waddr_ld;
+reg waddr_clr, waddr_nvr_ld, waddr_vbit_ld;
+reg [2:0] wsize;
+reg haddr_nvr, saddr_next_nvr, saddr_nvr, waddr_nvr, waddr_next_nvr;
+reg [X_WIDTH-1:0] haddr_x, saddr_next_x, saddr_x, waddr_x, waddr_next_x;
+reg [Y_WIDTH-1:0] haddr_y, saddr_next_y, saddr_y, waddr_y, waddr_next_y;
+wire waddr_is_diag;
+reg [MWADDR_WIDTH-1:0] haddr_mwa, saddr_next_mwa, saddr_mwa, waddr_mwa,
+  waddr_next_mwa;
+reg [1:0] haddr_ba, saddr_next_ba, saddr_ba, waddr_ba, waddr_next_ba;
+parameter WADDR_WIDTH = 1+X_WIDTH+Y_WIDTH+MWADDR_WIDTH+2;
+wire [WADDR_WIDTH-1:0] otpfull;
+reg waddr_diag_inc, waddr_sec_inc, waddr_inc, waddr_skip_inc, waddr_cfg_inc;
+wire waddr_y_done, waddr_x_done, waddr_sec_done, waddr_red_done;
+reg saddr_match, saddr_next_match, waddr_match;
+reg mw_hfirst, mw_hlast;
+reg tmen_h_ld, tmen_s_ld, tmen_w_ld, tmen_lower, tmen_raise;
+wire ishaddr_tmenchg, iswaddr_tmenchg, issaddr_tmenchg;
+wire hact;
+wire [4:0] otpcnt;
+wire [3:0] otpaddr;
+reg otpaddr_en;
+reg preread_ok;
+
+// MRD
+reg mrd_h_en, mrd_s_en, mrd_w_en, mrd_next_en;
+reg mrd;
+reg mnvr;
+reg [MADDR_WIDTH-1:0] maddr;
+
+// MDLY
+wire mrdyrst_n;
+reg [4:0] mdly;
+wire mdly_done;
+wire [3:0] rddly;
+reg mrdy_meta, mrdy_sync;
+
+// AHB Response
+reg readok;
+reg err;
+reg datard_ld;
+reg store_next;
+reg datawr_ld, datawr_clr;
+reg datawr_shift, datawr_diag_ld;
+reg [DATA_WIDTH*MW_WORDS-1:0] datawr;
+reg [ECC_WIDTH+DATA_WIDTH*MW_WORDS-1:0] datard;
+
+// Program/Erase Interface
+reg raise_prog, lower_prog;
+reg raise_progen, lower_progen;
+reg raise_cers, lower_cers;
+reg raise_sers, lower_sers;
+reg raise_ers, lower_ers;
+
+// RDSTATE
+parameter [1:0] IDLE = 2'b00;
+parameter [1:0] PENDLOW = 2'b01;
+parameter [1:0] PEND = 2'b10;
+parameter [1:0] RDWAIT = 2'b11;
+reg [1:0] rdstate, rdnextstate;
+reg addi_ld;
+reg rddone;
+wire rdinprog;
+
+// Counter
+reg counter_en;
+reg counter_clr;
+reg [15:0] counter, counter_mux, counter_val, mux_half, mux_quarter, mux_double;
+wire counter_done;
+reg counter_ld_tpgs, counter_ld_tpgsp, counter_ld_ttmh, counter_ld_ttmhp1;
+reg counter_ld_tsmall, counter_ld_tthree;
+reg counter_ld_trw, counter_ld_trwp;
+reg counter_ld_trsw, counter_ld_trswscan, counter_ld_trsr, counter_ld_tadsy;
+reg counter_ld_ttmr, counter_ld_tadsx, counter_ld_tsur, counter_ld_tsuw;
+reg counter_ld_trd, counter_ld_trh, counter_ld_tdpds, counter_ld_tdpdh;
+reg counter_ld_tpw, counter_ld_tckhm, counter_ld_tckh;
+wire otp_rdok, otp_done;
+wire config_done, config_185;
+
+// CFG
+reg lower_cfgsclk, raise_cfgsclk;
+reg lower_mshift, raise_mshift; 
+reg lower_msupd, raise_msupd; 
+reg lower_retb, raise_retb;
+reg lower_rstb, raise_rstb;
+reg lower_porb, raise_porb;
+reg lower_dpd, raise_dpd;
+reg lower_mce, raise_mce;
+reg raise_forcerst;
+reg [31:0] otpval;
+reg otpval_ld;
+reg otpshift_en;
+reg forcerst;
+
+// MBIST
+wire mtestld;
+reg [4:0] mdump;
+reg [4:0] mtest, mpass;
+reg [1:0] mverif;
+wire mbist;
+reg mtest_inc;
+wire mtest_wr, mtest_keep_nvr, mtest_arrayonly, mtest_read, mtest_wers,
+  mtest_diag;
+wire mtest_cfg;
+wire mtest_bypecc;
+wire mtest_start_sers, mtest_start_cers, mtest_noverif, mtest_fullverif;
+wire mtest_ret, mtest_wexit, mtest_search;
+reg mbist_done_en;
+reg mbist_clr, mbist_fail_ld;
+reg mbist_testecc, mbist_testecc_ld;
+
+// FBC
+reg [ECC_WIDTH+DATA_WIDTH*MW_WORDS-1:0] fbc_ref;
+reg [ECC_WIDTH+DATA_WIDTH*MW_WORDS-1:0] fbc_err;
+reg [FBC_FAIL_WIDTH-1:0] fbc_here;
+reg [TRIPPLE_WIDTH*2-1:0] fbc_tripple;
+reg fbc_clr, fbc_cnt;
+reg [FBC_WIDTH-1:0] fbc;
+reg [FBCNVR_WIDTH-1:0] fbc_nvr;
+wire fbc_uncorr;
+wire [FBC_WIDTH:0] fbc_next;
+reg [7:0] fbc_fatal;
+wire fbc_fail;
+reg lastfbc_store;
+reg [FBC_WIDTH-1:0] lastfbc[1:0];
+reg [FBC_WIDTH:0] fbc_add;
+reg [FBC_WIDTH-1:0] fbc_sum;
+reg fbc_large;
+reg [FBC_WIDTH-1:0] fbc_delta;
+wire fbc_gotworse;
+
+// Reftrim
+reg [5:0] satrim, vbitd, vbitu;
+reg [3:0] zcal;
+reg zcal_ld;
+reg satrim_inc, satrim_clr, satrim_dec, satrim_inc2, satrim_dec2,
+  satrim_offset_inc, satrim_offset_dec, satrim_max_ld, satrim_min_ld;
+reg vbitu_clr, vbitu_inc, vbitd_mid_ld, vbitu_dec, vbitu_offset_inc,
+  vbitu_offset_dec;
+reg vbitd_clr, vbitd_inc, vbitu_mid_ld, vbitd_dec, vbitd_offset_inc,
+  vbitd_offset_dec;
+reg [2:0] vbit_phase;
+wire vbit_inv;
+parameter [2:0]
+  VBITPH_INIT = 3'b000,
+  VBITPH_INV = 3'b001,
+  VBITPH_DOWN = 3'b010,
+  VBITPH_DOWN_INV = 3'b011,
+  VBITPH_UP = 3'b100,
+  VBITPH_UP_INV = 3'b101,
+  VBITPH_INIT_2 = 3'b110,
+  VBITPH_INV_2 = 3'b111;
+reg vbit_clr, vbit_up, vbit_next, vbit_stagedone;
+
+// Redundancy
+// YSADDR width should cover the X width twice plus have space for two NVRs.
+// We then use X_WIDTH+1 to cover the main array twice and have one more bit to
+// cover any extras.
+parameter YSADDRW = X_WIDTH + 1 + 1;
+// The data width YSWIDTH should be the address field (X_WIDTH), plus one bit
+// for the YSEN bit and one bit for the YSNVR bit.
+parameter YSWIDTH = X_WIDTH + 2;
+// The YSEN position should be after the X_WIDTH and the YSNVR right after that
+// one.
+parameter YSEN = X_WIDTH; // 0 = error in the redundancy, 1 = in the array
+parameter YSNVR = YSWIDTH-1; // Indicates the error is in the NVR
+reg [YSWIDTH-2:0] redcel[0:2]; // There is no need for a NVR bit.
+reg redundancy_act;
+reg redundancy_en, redundancy_clr, redundancy_dis;
+reg tag_en;
+reg [1:0] repaircell;
+reg already_repaired;
+// This parameter indicates that the redundancy is full.
+parameter [1:0] REDUNDANCY_FULL = 2'b11;
+// This tag is used to indicate that the redundancy element is bad. For the
+// config, we ditch the NVR bit as replacement in the NVR is not supported.
+// The YSEN bit then becomes the redundancy element enable. So bad elements
+// are tagged with YSEN=0 as they are not being used. There is no bit for the
+// NVR as we cannot repair it.
+parameter [YSWIDTH-2:0] REDUNDANCY_BAD = {1'b0, {X_WIDTH{1'b1}}};
+
+// This tag will mark the end of the list in the YSRAM.
+parameter [YSWIDTH-1:0] YSMEM_DONE = {1'b1, 1'b0, {X_WIDTH{1'b1}}};
+wire ysaddr_done;
+reg badx_set, badx_clr, badx;
+reg unrepairable_set, unrepairable_clr, unrepairable;
+reg redrd_en;
+
+////////////////////////////////////////////////////////////////////////////////
+// Outputs
+////////////////////////////////////////////////////////////////////////////////
+// For FPGA, we should not play with the clock. We then have mclk be the system
+// clock and all Mram signals just get ported out.
+`ifdef FPGA
+buf(mclk_o, hclk_i);
+always @(*) begin : BLK_MADDR
+  mrd_o = mrd;
+  mnvr_o = mnvr;
+  maddr_o = maddr;
+end
+`else
+// For ASICs it is not enough to slow down MCLK, we need to widen it too. So
+// we use a flop for this.
+reg mclk;
+buf i_buf_mclk(mclk_o, mclk);
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MCLK
+   if (!hreset_n_i) mclk <= 1'b0;
+   else mclk <= mrd_o;
+end
+
+`ifdef SYNTHESIS
+// For Synthesis we rely on STA to line up the clock and data ok.
+always @(*) begin : BLK_MADDR
+  mrd_o = mrd;
+  maddr_o = maddr;
+  mnvr_o = mnvr;
+end
+`else
+// For simulation we need to delay the data signals as we need the clock to
+// arrive last.
+// Be careful with delayed buffers (buf #(0,1) i_buf(...)) because in Vivado,
+// if the source is glitchy, it will pick one temporary output, then block
+// due to the # delay, and dump the changes. Cadence though will take the last
+// update (nonblocking).
+reg mrddel;
+reg [MADDR_WIDTH-1:0] maddrdel;
+reg mnvrdel;
+always @(*) #1 mrddel = mrd;
+always @(*) #1 maddrdel = maddr;
+always @(*) #1 mnvrdel = mnvr;
+always @(*) begin : BLK_MADDR
+  mrd_o = mrddel;
+  maddr_o = maddrdel;
+  mnvr_o = mnvrdel;
+end
+`endif
+`endif
+
+assign mbist_pass_o = mpass;
+assign mbist_busy_o = mbist;
+assign meccbyps_o = (mbist_testecc) ? mtest_bypecc : bypecc_static_i;
+assign mwe_n_o = ~(mprog_o | merase_o);
+assign mpeon_o = mrcxctrl_peon_i;
+assign satrim_o = satrim;
+assign vbitu_o = vbitu;
+assign vbitd_o = vbitd;
+assign zcal_o = zcal;
+assign redcel0_o = redcel[0];
+assign redcel1_o = redcel[1];
+assign redcel2_o = redcel[2];
+assign fbc_o = fbc;
+assign fbc_nvr_o = fbc_nvr;
+assign fbc_fatal_o = fbc_fatal;
+
+////////////////////////////////////////////////////////////////////////////////
+// FSM
+////////////////////////////////////////////////////////////////////////////////
+assign hact = hsel_i && (htrans_i == HTRANS_SEQ || htrans_i == HTRANS_NONSEQ);
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_STATE
+  if (!hreset_n_i) state <= OFF;
+  else state <= nextstate;
+end
+
+always @(*) begin : BLK_STATE_NEXT
+  nextstate = state; store_next = 1'b0;
+  saddr_ld = 1'b0; waddr_ld = 1'b0; waddr_nvr_ld = 1'b0; waddr_clr = 1'b0;
+  waddr_vbit_ld = 1'b0; waddr_skip_inc = 1'b0; waddr_cfg_inc = 1'b0;
+  waddr_inc = 1'b0; waddr_sec_inc = 1'b0; waddr_diag_inc = 1'b0;
+  tmen_h_ld = 1'b0; tmen_s_ld = 1'b0; tmen_w_ld = 1'b0;
+  tmen_lower = 1'b0; tmen_raise = 1'b0;
+  mrd_h_en = 1'b0; mrd_s_en = 1'b0; mrd_w_en = 1'b0; mrd_next_en = 1'b0;
+  datard_ld = 1'b0; datawr_clr = 1'b0;
+  readok = 1'b0;
+  raise_prog = 1'b0; lower_prog = 1'b0;
+  raise_progen = 1'b0; lower_progen = 1'b0;
+  raise_ers = 1'b0; lower_ers = 1'b0;
+  raise_cers = 1'b0; lower_cers = 1'b0;
+  raise_sers = 1'b0; lower_sers = 1'b0;
+  hready_o = 1'b0;
+  progdone_o = 1'b0; ersdone_o = 1'b0; erc_o = 1'b0;
+  counter_en = 1'b0;
+  otpval_ld = 1'b0; otpshift_en = 1'b0;
+  lower_mshift = 1'b0; raise_mshift = 1'b0;
+  lower_msupd = 1'b0; raise_msupd = 1'b0;
+  lower_retb = 1'b0; raise_retb = 1'b0;
+  lower_mce = 1'b0; raise_mce = 1'b0;
+  raise_porb = 1'b0; lower_porb = 1'b0;
+  raise_dpd = 1'b0; lower_dpd = 1'b0;
+  lower_rstb = 1'b0; raise_rstb = 1'b0;
+  lower_cfgsclk = 1'b0; raise_cfgsclk = 1'b0;
+  rstreqdone_o = 1'b0; raise_forcerst = 1'b0; otpaddr_en = 1'b0;
+  counter_clr = 1'b0; counter_ld_tpgs = 1'b0; counter_ld_tpgsp = 1'b0;
+  counter_ld_trw = 1'b0; counter_ld_trwp = 1'b0;
+  counter_ld_ttmh = 1'b0; counter_ld_ttmr = 1'b0; counter_ld_tadsx = 1'b0;
+  counter_ld_tadsy = 1'b0; counter_ld_tpw = 1'b0;
+  counter_ld_tsmall = 1'b0; counter_ld_tthree = 1'b0;
+  counter_ld_ttmhp1 = 1'b0; counter_ld_trsw = 1'b0; counter_ld_trswscan = 1'b0;
+  counter_ld_trsr = 1'b0;
+  counter_ld_tsur = 1'b0; counter_ld_tsuw = 1'b0; counter_ld_trd = 1'b0;
+  counter_ld_trh = 1'b0; counter_ld_tdpds = 1'b0; counter_ld_tdpdh = 1'b0;
+  counter_ld_tckhm = 1'b0; counter_ld_tckh = 1'b0;
+  mbist_done_en = 1'b0; mbist_fail_ld = 1'b0; mtest_inc = 1'b0;
+  mbist_clr = 1'b0; datawr_shift = 1'b0; datawr_diag_ld = 1'b0;
+  mbist_testecc_ld = 1'b0; fbc_clr = 1'b0; fbc_cnt = 1'b0;
+  lastfbc_store = 1'b0; zcal_ld = 1'b0;
+  satrim_max_ld = 1'b0; satrim_min_ld = 1'b0;
+  satrim_inc = 1'b0; satrim_clr = 1'b0; satrim_dec = 1'b0;
+  satrim_inc2 = 1'b0; satrim_dec2 = 1'b0;
+  satrim_offset_inc = 1'b0; satrim_offset_dec = 1'b0;
+  vbitu_clr = 1'b0; vbitu_inc = 1'b0; vbitu_mid_ld = 1'b0; vbitu_dec = 1'b0;
+  vbitu_offset_inc = 1'b0; vbitu_offset_dec = 1'b0;
+  vbitd_clr = 1'b0; vbitd_inc = 1'b0; vbitd_mid_ld = 1'b0; vbitd_dec = 1'b0;
+  vbitd_offset_inc = 1'b0; vbitd_offset_dec = 1'b0;
+  vbit_clr = 1'b0; vbit_up = 1'b0; vbit_next = 1'b0; vbit_stagedone = 1'b0;
+  redundancy_en = 1'b0; redundancy_clr = 1'b0; redundancy_dis = 1'b0;
+  tag_en = 1'b0;
+  badx_set = 1'b0; badx_clr = 1'b0;
+  unrepairable_set = 1'b0; unrepairable_clr = 1'b0;
+
+  // If we get a request to go to reset and we are not yet in reset, we raise
+  // the force reset signal high and go to reset wait.
+  if (state != FULLRST && mrcxctrl_rstreq_i) begin
+    raise_forcerst = 1'b1;
+    raise_mce = 1'b1;
+    nextstate = FULLRST;
+
+  // Other cases we process normally.
+  end else case(state)
+    OFF: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        raise_porb = 1'b1;
+        raise_retb = 1'b1;
+        counter_ld_trsw = 1'b1;
+        nextstate = WAITRSTB;
+      end
+    end
+
+    WAITRSTB: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        raise_rstb = 1'b1;
+        counter_ld_trsr = 1'b1;
+        mbist_clr = 1'b1;
+        waddr_clr = 1'b1;
+        nextstate = CFGWAIT;
+      end
+    end
+
+    INACTIVE: begin
+      counter_en = 1'b1;
+      if (counter_done &&
+            (powerdown_i && !mtest_ret || mtest_ret && mverif == 2'b00)) begin
+         lower_retb = 1'b1;
+         counter_ld_trd = 1'b1;
+         nextstate = RETB;
+      end else if (counter_done && deeppowerdown_i) begin
+         counter_ld_tdpds = 1'b1;
+         nextstate = DPD;
+      end else if (counter_done && !standby_i && !powerdown_i &&
+            !deeppowerdown_i) begin
+         lower_mce = 1'b1;
+         nextstate = INVALID;
+      // If we are returning for the second part of RET0 or RET1, we then
+      // clear the waddr counter and go back to CFGLD.
+      end else if (mtest_ret && mverif == 2'b01) begin
+         waddr_clr = 1'b1;
+         nextstate = CFGLD;
+      end
+    end
+
+    // If we are not in test mode we wait for the CPU to send the configuration.
+    // If a test mode request comes in we go ahead and do it.
+    CFGWAIT: begin
+       if (mbist || cfgwr_i) nextstate = CFGLD;
+    end
+
+    CFGLD: begin
+       counter_en = 1'b1;
+       if (counter_done) begin
+          if (mtest_cfg) satrim_clr = 1'b1;
+          if (mrcxop_div_i == CLKRATE_200 || mrcxop_div_i == CLKRATE_250)
+             counter_ld_tsmall = 1'b1;
+          otpval_ld = 1'b1;
+          raise_mshift = 1'b1;
+          nextstate = CFGRAISECLK;
+       end
+    end
+
+    CFGRAISECLK: begin
+       counter_en = 1'b1;
+       if (counter_done) begin
+          otpaddr_en = 1'b1;
+          raise_cfgsclk = 1'b1;
+          if (mbist) counter_ld_tckhm = 1'b1;
+          else counter_ld_tckh = 1'b1;
+          nextstate = CFGCLKHIGH;
+       end
+    end
+    CFGCLKHIGH: begin
+       otpaddr_en = 1'b1;
+       counter_en = 1'b1;
+       if (counter_done) begin
+          if (mbist) counter_ld_tckhm = 1'b1;
+          else counter_ld_tckh = 1'b1;
+          lower_cfgsclk = 1'b1;
+          nextstate = CFGCLKLOW1;
+       end
+    end
+
+    CFGCLKLOW1: begin
+       otpaddr_en = 1'b1;
+       counter_en = 1'b1;
+
+       // We need to check the data comming back if we are in the test
+       // mode.
+       if (mtest_cfg && mpass == 5'd0) begin
+         // For the reset test all bits need to be low
+         if (mtest == MBIST_CFGRSTTEST
+               || mtest == MBIST_ZERORET && mverif == 2'b01)
+            mbist_fail_ld = msdo_i != 1'b0;
+
+         // For the one retention test, all bits must be high
+         else if (mtest == MBIST_ONERET && mverif == 2'b01)
+            mbist_fail_ld = msdo_i != 1'b1;
+
+         // In the config 1 test we expect to see the remaining zeroes from
+         // the reset and then the pulse that initiates the config1 test.
+         else if (mtest == MBIST_CFG1TEST && config_185)
+           mbist_fail_ld = msdo_i != 1'b1;
+         else if (mtest == MBIST_CFG1TEST) mbist_fail_ld = msdo_i != 1'b0;
+
+         // In the config set test we should see the zeroes from the config1
+         // test followed by a signal going high from the config set test.
+         else if (mtest == MBIST_CFGSETTEST && config_185)
+           mbist_fail_ld = msdo_i != 1'b1;
+         else if (mtest == MBIST_CFGSETTEST) mbist_fail_ld = msdo_i != 1'b0;
+
+         // In the config zero test we expect to see all ones flushing out the
+         // previous set test followed by a zero from the test.
+         else if (mtest == MBIST_CFG0TEST && config_185)
+           mbist_fail_ld = msdo_i != 1'b0;
+         else if (mtest == MBIST_CFG0TEST) mbist_fail_ld = msdo_i != 1'b1;
+       end
+
+       // IF we are in mtest_cfg, the buffer is slightly longer, so we check
+       // config_185 instead of config_done.
+       if (mtest_cfg && config_185) begin
+          waddr_clr = 1'b1;
+          // We increment the test and go back. If we are dealing with
+          // CFG0TEST we need to do a reset first.
+          mtest_inc = 1'b1;
+          if (mtest == MBIST_CFG0TEST) begin
+             lower_rstb = 1'b1;
+             counter_ld_trsw = 1'b1;
+             nextstate = WAITRSTB;
+          end else begin
+             nextstate = CFGCLKLOW2;
+          end
+       // If we are in mtest_cfg but did not hit the end, all we do is
+       // increment.
+       end else if (mtest_cfg) begin
+          waddr_cfg_inc = 1'b1;
+          nextstate = CFGCLKLOW2;
+
+       // For the remaining cases, we consider counting from 0 to 184. 
+       end else if (config_done) nextstate = CFGCLKLOWLAST;
+       else begin
+          waddr_cfg_inc = 1'b1;
+          nextstate = CFGCLKLOW2;
+       end
+    end
+
+    CFGCLKLOW2: begin
+       // In this state we load the next value. This could be a shift or
+       // a new value load.
+       counter_en = 1'b1;
+       otpaddr_en = 1'b1;
+       if (!otp_done) otpshift_en = 1'b1;
+       else if (cfgwr_i || mbist) otpval_ld = 1'b1;
+       nextstate = CFGCLKLOW3;
+    end
+
+    // CFGCLKLOW3 is when we finish the low time. We wait until the counter
+    // has expired so that we have the full low time. Then we reload the
+    // counter and raise the otp clock.
+    CFGCLKLOW3: begin
+       counter_en = 1'b1;
+       otpaddr_en = 1'b1;
+       if (counter_done) begin
+          // We then load the clock high time and raise the clock.
+          if (mbist) counter_ld_tckhm = 1'b1;
+          else counter_ld_tckh = 1'b1;
+          raise_cfgsclk = 1'b1;
+          nextstate = CFGCLKHIGH;
+       end
+    end
+
+    CFGCLKLOWLAST: begin
+      counter_en = 1'b1;
+      // Retention tests we do not apply the update pulse
+      if (counter_done && mtest_ret && mverif == 2'b00) begin
+         counter_ld_trh = 1'b1;
+         nextstate = CFGPOSTWAIT;
+      // Other tests we finish normally.
+      end else if (counter_done) begin
+         lower_mshift = 1'b1;
+         counter_ld_tsur = 1'b1;
+         nextstate = CFGSUR;
+      end
+    end
+    CFGSUR: begin
+       counter_en = 1'b1;
+       if (counter_done) begin
+          raise_msupd = 1'b1;
+          counter_ld_tsuw = 1'b1;
+          nextstate = CFGSUW;
+       end
+    end
+    CFGSUW: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        lower_msupd = 1'b1;
+        counter_ld_trh = 1'b1;
+        nextstate = CFGPOSTWAIT;
+        // IF this is a SATRIM, we go aheand and prepare for the next
+        // read cycles.
+        if (mtest == MBIST_SATRIMN || mtest == MBIST_SATRIMP) begin
+          waddr_clr = 1'b1;
+          tmen_lower = 1'b1;
+        end
+      end
+    end
+    CFGPOSTWAIT: begin
+       counter_en = 1'b1;
+       if (counter_done) begin
+         // Some of these tests need to do more after loading the trims. These
+         // will go back into the MBIST flow.
+         if (mtest == MBIST_VBITD || mtest == MBIST_VBITU) begin
+           fbc_clr = 1'b1;
+           nextstate = MBIST_WRITE;
+         end else if (mtest == MBIST_SATRIMN || mtest == MBIST_SATRIMP) begin
+           fbc_clr = 1'b1;
+           nextstate = MBIST_VERIFY;
+         // If we are in the first phase of ret, we need to go to shutdown.
+         end else if (mtest_ret && mverif == 2'b00) begin
+           counter_ld_trd = 1'b1;
+           raise_mce = 1'b1;
+           nextstate = INACTIVE;
+         // The remainder tests, we just exit test mode.
+         end else begin
+           mbist_done_en = 1'b1;
+
+           // If we have a request to go to standby, we need to raise CE and
+           // go to INACTIVE.
+           if (standby_i) begin
+             if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+             else counter_ld_trd = 1'b1;
+             raise_mce = 1'b1;
+             nextstate = INACTIVE;
+
+           // If we are going to active mode, we need to see if there is some
+           // request going on. We only care about reads here. The others need
+           // to wait.
+           end else if (hact && !hwrite_i) begin
+             if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+             lower_mce = 1'b1;
+             saddr_ld = 1'b1;
+             nextstate = DELRD;
+
+           // If there is no read request then we just go to invalid and wait
+           // for a response.
+           end else begin
+             if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+             lower_mce = 1'b1;
+             nextstate = INVALID;
+           end
+         end
+       end
+    end
+
+    INVALID, READFIRST, READVALID, READREQN: begin
+      hready_o = 1'b1;
+      if (state == READFIRST || state == READVALID || state == READREQN)
+        readok = 1'b1;
+
+      // If the counter is running, we keep it running. This might be necessary.
+      counter_en = 1'b1;
+
+      // If we get powerdown or standby we go to the corresponding state.
+      if (standby_i || powerdown_i || deeppowerdown_i) begin
+        raise_mce = 1'b1;
+        counter_ld_trd = 1'b1;
+        nextstate = INACTIVE;
+
+      // If we get a write to the PLOAD, we jump to the config load to take the
+      // data.
+      end else if (cfgwr_i) begin
+        waddr_clr = 1'b1;
+        nextstate = CFGLD;
+      end else if (mbist && mtest != MBIST_DUMP) nextstate = MBIST;
+      else begin
+        // Sector Erase and chip erase do not depend on the data. Sector erase
+        // needs an address, so we wait for the first write. With chip erase we
+        // do not need an address, but we wait for one just to make it easy to
+        // time it.
+        if (hact && hwrite_i && (mrcxctrl_mode_i == MODE_SERS ||
+            mrcxctrl_mode_i == MODE_CERS)) begin
+          waddr_ld = 1'b1;
+
+          // If there is still a read going on or if we are changing the TMEN,
+          // we then need to check the counter. There might still be a tTMR
+          // running.
+          if (rdinprog ||
+              (ishaddr_tmenchg || mrcxctrl_mode_i == MODE_CERS && mtmen_o)
+              && !counter_done)
+            nextstate = WAIT_TTMR;
+
+          // If there is no counter running, we can check if we are going to
+          // change the TMEN. For the CERS command, we need to lower TMEN.
+          // If not we take it from the AHB.
+          else if (ishaddr_tmenchg || mrcxctrl_mode_i == MODE_CERS && mtmen_o)
+              begin
+            counter_ld_ttmh = 1'b1;
+            if (mrcxctrl_mode_i == MODE_CERS) tmen_lower = 1'b1;
+            else tmen_h_ld = 1'b1;
+            nextstate = WAIT_TTMH;
+
+          // The other commands will just raise ERS, SCE and maybe CHIP to
+          // begin.
+          end else begin
+            if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+            else counter_ld_tpgs = 1'b1;
+            raise_ers = 1'b1;
+            if (mrcxctrl_mode_i != MODE_SERS) raise_cers = 1'b1;
+            raise_sers = 1'b1;
+            nextstate = WAIT_TPGS;
+          end
+
+        // For program and word erase we need the data. We then check the
+        // mode to make sure it is ok. If this was a write to the last word
+        // we need to process it.
+        end else if (hact && hwrite_i && writeok) begin
+          // We store the address. If this is the first word in the mram word
+          // or if we changed mram words, we also clear the buffer.
+          waddr_ld = 1'b1;
+          if (mw_hfirst || !waddr_match) datawr_clr = 1'b1;
+          // We need to raise a tag that in the next cycle we will have
+          // data to store.
+          store_next = 1'b1;
+          
+          // If this is the last word in a write, we can begin. First we need
+          // to make sure there is no read in progress.
+          if (mw_hlast && (rdinprog || !counter_done && ishaddr_tmenchg))
+             nextstate = WAIT_TTMR;
+
+          // If we are at the last word and there is no wait needed we can
+          // begin. If we are going to flip the TMEN we flip it and go to wait.
+          // If not we can raise PROG and go to wait for PGM.
+          else if (mw_hlast && ishaddr_tmenchg) begin
+            counter_ld_ttmh = 1'b1;
+            tmen_h_ld = 1'b1;
+            nextstate = WAIT_TTMH;
+          end else if (mw_hlast && mrcxctrl_mode_i != MODE_PGM) begin
+            if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+            else counter_ld_tpgs = 1'b1;
+            raise_ers = 1'b1;
+            nextstate = WAIT_TPGS;
+          end else if (mw_hlast) begin
+            if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+            else counter_ld_tpgs = 1'b1;
+            raise_prog = 1'b1;
+            nextstate = WAIT_TPGS;
+          end
+
+        // If we get a read that matches the buffer, we simply give the master
+        // what he asked for. We need to make sure the buffer is not invalid.
+        end else if (hact && !hwrite_i && saddr_match && state != INVALID)
+            begin
+          saddr_ld = 1'b1;
+          // If state is FIRST and we are prefetching, we then initiate the
+          // next read.
+          if (!rdinprog && preread_ok && state == READFIRST) begin
+            mrd_next_en = 1'b1;
+            counter_ld_ttmr = 1'b1;
+            nextstate = READREQN;
+          // If we are not prefetching, we go to READVALID, as there is no
+          // data in the data buffer.
+          end else if (!rdinprog && state == READFIRST) begin
+            nextstate = READVALID;
+          end
+          // If this was not the FIRST, then we do not change state as the
+          // data is taken from the buffer.
+
+        // If we have a read to the next buffer and it is present, we then
+        // need to take it.
+        end else if (hact && !hwrite_i && saddr_next_match && state == READREQN)
+            begin
+
+          // We latch the address
+          saddr_ld = 1'b1;
+
+          // If the read is done, we then load the data into the buffer. If
+          // prereading is ok, we also go to FIRST so that the next read
+          // can begin the prefetching.
+          if (rddone && preread_ok) begin
+            datard_ld = 1'b1;
+            nextstate = READFIRST;
+          // If prereading is not allowed, we then move onto READVALID as we
+          // no longer have a request in the MRAM output.
+          end else if (rddone) begin
+            datard_ld = 1'b1;
+            nextstate = READVALID;
+          // If the read is not done, we then need to go to pend.
+          end else nextstate = READPEND;
+
+        // If we instead got a read that does not match neither the current
+        // buffer or the next, or if the buffer is invalid, we then need to
+        // fetch data and wait.
+        end else if (hact && !hwrite_i) begin
+          // We store the address.
+          saddr_ld = 1'b1;
+
+          // We might have already a read in progress. We will ditch it, but
+          // we still have to wait for it to finish. If we do, we go to DELRD.
+          // If QUICKHREAD is disabled, we also go to DELRD as we need to latch
+          // the request first and then we can process it.
+          if (rdinprog || ishaddr_tmenchg && !counter_done || NOQUICKHREAD)
+              begin
+            nextstate = DELRD;
+          end else if (ishaddr_tmenchg) begin
+            counter_ld_ttmhp1 = 1'b1;
+            tmen_h_ld = 1'b1;
+            nextstate = RDWAIT_TTMH;
+          end else begin
+            mrd_h_en = 1'b1;
+            counter_ld_ttmr = 1'b1;
+            nextstate = READPEND;
+          end
+
+        // And finally we have a flag we raise if there was a write and we
+        // were in readmode.
+        end else if (hact && hwrite_i) begin
+          erc_o = 1'b1;
+        end
+      end
+    end
+    RDWAIT_TTMH: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        mrd_s_en = 1'b1;
+        counter_ld_ttmr = 1'b1;
+        nextstate = READPEND;
+      end
+    end
+    READPEND: begin
+      counter_en = 1'b1;
+      if (rddone) begin
+        datard_ld = 1'b1;
+        nextstate = READFIRST;
+      end
+    end
+
+    DELRD: begin
+      counter_en = 1'b1;
+      // We can only do a read if there is not one already in progress.
+      if (!rdinprog) begin
+        // If we are changing tmen, we need to wait for the counter to
+        // expire first as we need to respect the tTMH.
+        if (issaddr_tmenchg && counter_done) begin
+          counter_ld_ttmhp1 = 1'b1;
+          tmen_s_ld = 1'b1;
+          nextstate = RDWAIT_TTMH;
+        // If there is no tmen change, then we can ignore the counter and just
+        // go forwards.
+        end else if (!issaddr_tmenchg) begin
+          mrd_s_en = 1'b1;
+          counter_ld_ttmr = 1'b1;
+          nextstate = READPEND;
+        end
+      end
+    end
+
+    // We have a program. We need to wait for any reads to finish. Then we
+    // raise the mprog_o signal and go to WPULSE.
+    // store it. We can then raise PROG.
+    WAIT_TTMR: begin
+      counter_en = 1'b1;
+
+      // Some commands need to change tmen, so we need to wait for any
+      // read in progress, then wait the tTMR, and then we can toggle tmen.
+      // Note that CERS can only be done with tmen low.
+      if (!rdinprog && counter_done &&
+          // tmenchg means we need to toggle tmen, but it is only valid if
+          // we are not in chip erase.
+          (iswaddr_tmenchg && mrcxctrl_mode_i != MODE_CERS ||
+          // If we are doing a chip erase and tmen is high, we then need to
+          // lower it.
+          mtmen_o && mrcxctrl_mode_i == MODE_CERS)) begin
+        tmen_w_ld = 1'b1;
+        counter_ld_ttmh = 1'b1;
+        nextstate = WAIT_TTMH;
+
+      // If tmen is not changing, we can ignore the counter. All we do is wait
+      // for any reads in progress to finish.
+      end else if (!rdinprog) begin
+        // We load the counter with the tPGS or tPGSp, depending on peon
+        if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+        else counter_ld_tpgs = 1'b1;
+
+        // Next we raise the correct mode signals
+        if (mrcxctrl_mode_i == MODE_PGM) begin
+          raise_prog = 1'b1;
+        end else if (mrcxctrl_mode_i == MODE_SERS) begin
+          raise_ers = 1'b1;
+          raise_sers = 1'b1;
+        end else if (mrcxctrl_mode_i == MODE_CERS) begin
+          raise_ers = 1'b1;
+          raise_sers = 1'b1;
+          raise_cers = 1'b1;
+        end else begin
+          raise_ers = 1'b1;
+        end
+
+        // Then we go to waiting for the tPGS or tPGSp.
+        nextstate = WAIT_TPGS;
+      end
+    end
+
+    // When we finish waiting for the tTMH, we can raise the mode signal signals
+    // and load the tPGS counter. If the peon is high, tPGS becomes 10ns so we
+    // can just jump to the next state.
+    WAIT_TTMH, WAIT_ERS_TRW, WAIT_PROG_TRW: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        // We then only load tPGS if peon is low. If it is high we do not load
+        // any counter as one clock tick is enough.
+        if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+        else counter_ld_tpgs = 1'b1;
+
+        // Sector Erase ////////////////////////////////////////////////////////
+        // For sector erase, we take it if we are in SERS mode or if we have a
+        // mbist request to go into SERS.
+        if (state == WAIT_ERS_TRW && !mtest_wers
+            || state == WAIT_TTMH && mtest_start_sers
+            || !mbist && mrcxctrl_mode_i == MODE_SERS) begin
+          raise_sers = 1'b1;
+          raise_ers = 1'b1;
+
+        // Chip Erase //////////////////////////////////////////////////////////
+        // We go into CERS if we are in CERS mode or if we got a mbist request
+        // to go into CERS.
+        end else if (!mbist && mrcxctrl_mode_i == MODE_CERS
+            || state == WAIT_TTMH && mtest_start_cers) begin
+          raise_sers = 1'b1;
+          raise_ers = 1'b1;
+          raise_cers = 1'b1;
+
+        // Program /////////////////////////////////////////////////////////////
+        // We go into program if we are in MODE_PGM, if we are in the state
+        // WAITERSPROG (meaning we are in ERSPGM and we already did the erase,
+        // or if we have a MBIST write request.
+        end else if (state == WAIT_PROG_TRW
+            || !mbist && mrcxctrl_mode_i == MODE_PGM
+            || state == WAIT_TTMH && !mtest_wers && mtest_wr) begin
+          raise_prog = 1'b1;
+        // Word Erase //////////////////////////////////////////////////////////
+        end else begin
+          raise_ers = 1'b1;
+        end
+        ////////////////////////////////////////////////////////////////////////
+        nextstate = WAIT_TPGS;
+      end
+    end
+
+    // We now wait for the PROGEN pulse.
+    WAIT_TPGS: begin
+      counter_en = 1'b1;
+      // If we have ECC, we need to clear all bits, regardless of the pattern.
+      // Once the wait time is done we can issue the pulse.
+      if (counter_done) begin
+        raise_progen = 1'b1;
+        counter_ld_tthree = 1'b1;
+        nextstate = WPULSE;
+      end
+    end
+
+    // The actual pulse is timed by the memory
+    WPULSE: begin
+      counter_en = 1'b1;
+      // Once we hit done, we need to decide what to do next. It happens to do
+      // with the command. Note that done_sync can take a few cycles to go
+      // low, so we need to wait for the counter to expire before we can look
+      // at it.
+      if (counter_done && done_sync) begin
+        // If this is the MBIST and we are going to enter the NVR, we need to
+        // lower all mode signals and then pause for the tTMR before we can
+        // raise the tmen signal.
+        // We will enter the NVR if:
+        // - we are not yet in the NVR, of course and it is not array only
+        // - this is a chip erase
+        // - this is a sector erase and sec part of X is all high
+        // - this is a diag word erase or program and X is all high
+        //    (we only do one write per X in diag mode)
+        // - this is a regular word erase or program and X and Y are all high.
+        if (!redundancy_act && mbist && !waddr_nvr && !mtest_arrayonly &&
+            (mchip_o
+            || msce_o && waddr_sec_done
+            || mtest_diag && waddr_x_done
+            || waddr_x_done && waddr_y_done)) begin
+          lower_progen = 1'b1;
+          lower_prog = 1'b1;
+          lower_cers = 1'b1;
+          lower_ers = 1'b1;
+          lower_sers = 1'b1;
+          counter_ld_ttmr = 1'b1;
+          if (merase_o) nextstate = MBIST_ERS_NVR;
+          else nextstate = MBIST_WRITE_NVR;
+
+        // If we are not entering the NVR and we are not done, we just
+        // increment. For sector erase there is only one sector in the NVR
+        // so if we are not in it, we can increment.
+        end else if (!redundancy_act && mbist && msce_o && !waddr_nvr &&
+            !mchip_o) begin
+          lower_progen = 1'b1;
+          lower_prog = 1'b1;
+          lower_cers = 1'b1;
+          lower_ers = 1'b1;
+          lower_sers = 1'b1;
+          if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+          else counter_ld_trw = 1'b1;
+          waddr_sec_inc = 1'b1;
+          nextstate = WAIT_ERS_TRW;
+
+        // For the program and word erase commands that are not done we need
+        // to increment the address.
+        // We are not done if:
+        // - For VBITD and VBITU phase 1 we want to do just a part of the array
+        // - for diag, it is enough to confirm we are not in the NVR.
+        // - for regular word erase and program, we are only done when we are
+        //     in the NVR and the Y is all high.
+        // - and we also have the main array only case and the redundancy case.
+        end else if (mbist && !msce_o && !mchip_o && (
+            // If it is redundancy we continue if we have not finished the
+            // redundancy.
+            redundancy_act && !waddr_red_done ||
+            redundancy_act && !mtest_diag && !waddr_y_done ||
+
+            // For array only, we go until we finish the main array.
+            !redundancy_act && mtest_arrayonly && !waddr_x_done ||
+            !redundancy_act && mtest_arrayonly && !mtest_diag && !waddr_y_done||
+
+            // If not in redundancy or array only, we stop only in the NVR
+            !redundancy_act && !mtest_arrayonly && !waddr_nvr ||
+            !redundancy_act && !mtest_diag && !waddr_y_done)) begin
+
+          // For diag we increment diagonnaly. For others we just increment.
+          if (mtest_diag) waddr_diag_inc = 1'b1;
+          else waddr_inc = 1'b1;
+
+          // If this is a diagonal, we shift the data to prepare for the next
+          // one.
+          if (mtest_diag) datawr_shift = 1'b1;
+
+          // If we are changing the X address we need a longer wait to
+          // change the address.
+          if (mtest_diag || waddr_y_done) counter_ld_tadsx = 1'b1;
+          else counter_ld_tadsy = 1'b1;
+
+          // And we go to the next pulse.
+          lower_progen = 1'b1;
+          nextstate = WAIT_TPGS;
+
+        // For regular ERS and PGM we need to increment to the next location.
+        // Note that if the X address is changing we need a longer wait. We do
+        // not have to worry here about the NVR as we can't go from main to
+        // NVR or back in regular commands.
+        end else if (!mbist && hact && hwrite_i &&
+            (mprog_o || merase_o) && waddr_nvr == haddr_nvr &&
+            (mrcxctrl_mode_i == MODE_PGM || mrcxctrl_mode_i == MODE_ERS)) begin
+          lower_progen = 1'b1;
+          if (haddr_x != waddr_x) counter_ld_tadsx = 1'b1;
+          // We store the address. We do this because in WCOLLECT we need
+          // to repeat the address match.
+          waddr_ld = 1'b1;
+          datawr_clr = 1'b1;
+          nextstate = WCOLLECT;
+
+        // For other cases we need to exit this command.
+        end else begin
+          lower_progen = 1'b1;
+          lower_prog = 1'b1;
+          lower_ers = 1'b1;
+          lower_sers = 1'b1;
+          lower_cers = 1'b1;
+
+          // If we are in MBIST, we then go to WRITE or VERIFY. Note that if
+          // NVR is high, we will have to lower it. For this we need to respect
+          // the TTMR.
+
+          // If there is no verif, we are done. ////////////////////////////////
+          if (mbist && mtest_noverif) begin
+            // If we do not have PEON we load tRW and go to the penalty box.
+            if (!mrcxctrl_peon_i) counter_ld_trw = 1'b1;
+            // For the others all we do is load ttmh. This will cover the tRD
+            // as tTMH is much larger.
+            else counter_ld_ttmh = 1'b1;
+            nextstate = PENALTYBOX;
+          // SATRIM we go from erase to write to CFG. //////////////////////////
+          end else if (mbist && msce_o &&
+              (mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN)) begin
+            if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+            else counter_ld_trw = 1'b1;
+            nextstate = MBIST_WRITE;
+          end else if (mbist &&
+              (mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN)) begin
+            if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+            else counter_ld_trw = 1'b1;
+            waddr_clr = 1'b1;
+            nextstate = CFGLD;
+          // Other erases go to verify /////////////////////////////////////////
+          end else if (mbist && msce_o && !mtest_keep_nvr) begin
+            counter_ld_ttmr = 1'b1;
+            fbc_clr = 1'b1;
+            nextstate = MBIST_TTMR_VERIFY;
+          end else if (mbist && msce_o) begin
+            if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+            else counter_ld_trw = 1'b1;
+            fbc_clr = 1'b1;
+            nextstate = MBIST_VERIFY;
+          // And word erases and word writes go to verify //////////////////////
+          end else if (mbist && waddr_nvr) begin
+            // In the verify for the WLK0 we need to load the diag as we reuse
+            // the write buffer to check the incomming data.
+            if (mtest_diag) datawr_diag_ld = 1'b1;
+            counter_ld_ttmr = 1'b1;
+            fbc_clr = 1'b1;
+            nextstate = MBIST_TTMR_VERIFY;
+          end else if (mbist) begin
+            // We only reach this if we are doing an array only operation
+            if (mtest_diag) datawr_diag_ld = 1'b1;
+            if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+            else counter_ld_trw = 1'b1;
+            if (vbit_phase != VBITPH_INIT_2 && vbit_phase != VBITPH_INV_2 &&
+                (mtest == MBIST_VBITD || mtest == MBIST_VBITU)) begin
+              waddr_vbit_ld = 1'b1;
+            end else waddr_clr = 1'b1;
+            fbc_clr = 1'b1;
+            nextstate = MBIST_VERIFY;
+
+          // If we were in ERSPGM, we go onto PGM.
+          end else if (mrcxctrl_mode_i == MODE_ERSPGM && merase_o) begin
+            if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+            else counter_ld_trw = 1'b1;
+            nextstate = WAIT_PROG_TRW;
+
+          // If we are in regular program, we need to go into progdone.
+          end else if (mprog_o) begin
+            progdone_o = 1'b1;
+            if (mrcxctrl_peon_i) counter_ld_ttmr = 1'b1;
+            else counter_ld_trw = 1'b1;
+            waddr_clr = 1'b1;
+            nextstate = PENALTYBOX;
+
+          // For erase, we get a erase done.
+          end else begin
+            ersdone_o = 1'b1;
+            // We load ttmr and not trwp if TMEN is high because ttmr is
+            // larger than trwp.
+            if (mrcxctrl_peon_i) counter_ld_ttmr = 1'b1;
+            else counter_ld_trw = 1'b1;
+            waddr_clr = 1'b1;
+            nextstate = PENALTYBOX;
+          end
+        end
+      end
+    end
+
+    // If we have not yet received the nn
+    WCOLLECT: begin
+      counter_en = 1'b1;
+      hready_o = 1'b1;
+      // If we get an address that does not match, we need to abort it.
+      if (hact && hwrite_i && !waddr_match) begin
+        lower_prog = 1'b1;
+        lower_ers = 1'b1;
+        lower_sers = 1'b1;
+        lower_cers = 1'b1;
+        if (mrcxctrl_peon_i) counter_ld_ttmr = 1'b1;
+        else counter_ld_trw = 1'b1;
+        nextstate = PENALTYBOX;
+
+      // For matching writes we store it in the buffer. If it is the last
+      // write, we then go to write it to the memory.
+      end else if (hact && hwrite_i) begin
+        // We store the address to know where we store the data.
+        waddr_ld = 1'b1;
+        store_next = 1'b1;
+        if (mw_hlast) nextstate = WTADSY;
+      end
+    end
+
+    WTADSY: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        // Now we wait for the next write accepted.
+        counter_ld_tadsy = 1'b1;
+        nextstate = WNEXTPULSE;
+      end
+    end
+
+    WNEXTPULSE: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        // Now we wait for the next write accepted.
+        counter_ld_tadsy = 1'b1;
+        raise_progen = 1'b1;
+        counter_ld_tthree = 1'b1;
+        nextstate = WPULSE;
+      end
+    end
+
+    // If PEON is off, we need to wait for a few microseconds before we can
+    // take commands.
+    PENALTYBOX: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        // If we were in a testmode without verification we clear the mbist.
+        if (mbist && mtest_noverif) mbist_done_en = 1'b1;
+        // And we go to invalid.
+        nextstate = INVALID;
+      end
+    end
+
+    MBIST: begin
+      counter_en = 1'b1;
+      if (counter_done && mtest_bypecc) begin
+        mbist_testecc_ld = 1'b1;
+        counter_ld_trd = 1'b1;
+        nextstate = MBIST_ERS;
+      end else if (counter_done) begin
+        nextstate = MBIST_ERS;
+      end
+    end
+
+    MBIST_ERS: begin
+      counter_en = 1'b1;
+      badx_clr = 1'b1;
+      unrepairable_clr = 1'b1;
+
+      // If we get a REDUNDANCY clear, we just clear everything.
+      if (counter_done &&
+          (mtest == MBIST_REDUNDANCY && mverif == MRED_CLR)) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        redundancy_clr = 1'b1;
+        mbist_done_en = 1'b1;
+        nextstate = INVALID;
+      // If we get a REDUNDANCY ACT, we then go into redundancy mode.
+      end else if (counter_done &&
+          (mtest == MBIST_REDUNDANCY && mverif == MRED_ACT)) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        redundancy_en = 1'b1;
+        waddr_clr = 1'b1; // We use the waddr as a otp counter
+        nextstate = CFGLD;
+      // For CFG we need to do a reset first before we do the config tests.
+      // If we get a REDUNDANCY REPAIR, we exit redundancy mode and repair
+      // the array.
+      end else if (counter_done &&
+          (mtest == MBIST_REDUNDANCY && (mverif == MRED_NONE ||
+             mverif == MRED_REPAIR))) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        redundancy_dis = 1'b1;
+        waddr_clr = 1'b1; // We use the waddr as a otp counter
+        nextstate = CFGLD;
+      // For scan test 1 we need a longer reset than the usual.
+      end else if (counter_done && (mtest == MBIST_CFGRSTTEST ||
+          mtest == MBIST_CFG1TEST)) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        waddr_clr = 1'b1; // We use the waddr as a otp counter
+        lower_rstb = 1'b1;
+        counter_ld_trswscan = 1'b1;
+        nextstate = WAITRSTB;
+      // For CFG we need to do a reset first before we do the config tests.
+      end else if (counter_done && (mtest_cfg|| mtest == MBIST_CFGLDTEST)) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        waddr_clr = 1'b1; // We use the waddr as a otp counter
+        lower_rstb = 1'b1;
+        counter_ld_trsw = 1'b1;
+        nextstate = WAITRSTB;
+      // The MBIST_ZCAL test needs to load different settings.
+      end else if (counter_done && mtest == MBIST_ZCAL) begin
+        fbc_clr = 1'b1;
+        if (mbist_i) begin
+          mbist_clr = 1'b1;
+          waddr_clr = 1'b1;
+          zcal_ld = 1'b1;
+          nextstate = CFGLD;
+        end
+      // When we are dealing with VBITU we clear the VBITD and vice-versa.
+      end else if (counter_done && mtest == MBIST_VBITU) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        vbitd_clr = 1'b1;
+        vbit_clr = 1'b1;
+        waddr_clr = 1'b1;
+        nextstate = CFGLD;
+      end else if (counter_done && mtest == MBIST_VBITD) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        vbitu_clr = 1'b1;
+        vbit_clr = 1'b1;
+        waddr_clr = 1'b1;
+        nextstate = CFGLD;
+      end else if (counter_done && mtest_ret) begin
+        mbist_clr = 1'b1;
+        waddr_clr = 1'b1;
+        nextstate = CFGLD;
+      // And for other tests, we follow the flow.
+      end else if (counter_done) begin
+        fbc_clr = 1'b1;
+        mbist_clr = 1'b1;
+        if (mtest == MBIST_SATRIMP) satrim_min_ld = 1'b1;
+        else satrim_max_ld = 1'b1;
+
+        // Some of the MBIST flows need to begin with a chip erase.
+        if (mtest_start_cers) begin
+          waddr_clr = 1'b1; // We always start from address 0.
+          // We now need to check the tmen, it needs to be low.
+          if (mtmen_o) begin
+            counter_ld_ttmh = 1'b1;
+            tmen_lower = 1'b1;
+            nextstate = WAIT_TTMH;
+          end else begin
+            if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+            else counter_ld_tpgs = 1'b1;
+            raise_cers = 1'b1;
+            raise_sers = 1'b1;
+            raise_ers = 1'b1;
+            nextstate = WAIT_TPGS;
+          end
+
+        // The SERS is just like CERS but it uses the sector erase to erase
+        // the array.
+        end else if (mtest_start_sers && mtest != MBIST_NVRERS) begin
+          waddr_clr = 1'b1; // We always start from address 0.
+          if (mtmen_o) begin
+            counter_ld_ttmh = 1'b1;
+            tmen_lower = 1'b1;
+            nextstate = WAIT_TTMH;
+          end else begin
+            if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+            else counter_ld_tpgs = 1'b1;
+            raise_sers = 1'b1;
+            raise_ers = 1'b1;
+            nextstate = WAIT_TPGS;
+          end
+        // If we are doing only the NVR, then we want TMEN to be high.
+        end else if (mtest_start_sers) begin
+          waddr_nvr_ld = 1'b1;
+          if (!mtmen_o) begin
+            counter_ld_ttmh = 1'b1;
+            tmen_raise = 1'b1;
+            nextstate = WAIT_TTMH;
+          end else begin
+            if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+            else counter_ld_tpgs = 1'b1;
+            raise_sers = 1'b1;
+            raise_ers = 1'b1;
+            nextstate = WAIT_TPGS;
+          end
+        end else nextstate = MBIST_WRITE;
+      end
+    end
+
+    MBIST_ERS_NVR, MBIST_WRITE_NVR: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        // Some tests use the SERS to erase the whole array.
+        if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+        else counter_ld_trw = 1'b1;
+        tmen_raise = 1'b1;
+        if (state == MBIST_WRITE_NVR && mtest == MBIST_WLK0
+            || state == MBIST_ERS_NVR && mtest == MBIST_WLK1)
+          waddr_diag_inc = 1'b1;
+        else waddr_nvr_ld = 1'b1;
+        nextstate = (state == MBIST_ERS_NVR) ? WAIT_ERS_TRW : WAIT_PROG_TRW;
+      end
+    end
+
+    // Tests that have a write phase need to go here. This can be a write
+    // zero (program) or a write 1 (word erase).
+    MBIST_WRITE: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        // VBIT search is in two phases. The first phase will do only a part
+        // of the array. The 2 phase plus all the other commands will do the
+        // whole array.
+        if (vbit_phase != VBITPH_INIT_2 && vbit_phase != VBITPH_INV_2 &&
+            (mtest == MBIST_VBITD || mtest == MBIST_VBITU)) begin
+          waddr_vbit_ld = 1'b1;
+        end else waddr_clr = 1'b1;
+
+        // For diag we need to preload a diagonal. This value is shifted.
+        if (mtest_diag) datawr_diag_ld = 1'b1;
+
+        // If TMEN is high, we need to lower it first, and that can take some
+        // time.
+        if (mtmen_o) begin
+          tmen_lower = 1'b1;
+          counter_ld_ttmh = 1'b1;
+          if (mtest_read) nextstate = MBIST_VERIFY;
+          else if (mtest_wers) nextstate = WAIT_ERS_TRW;
+          else nextstate = WAIT_PROG_TRW;
+
+        // Reads we just go to MBIST_VERIFY
+        end else if (mtest_read) begin
+          nextstate = MBIST_VERIFY;
+
+        // Word erase needs ERS high. The rest is just like program.
+        end else if (mtest_wers) begin
+          if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+          else counter_ld_tpgs = 1'b1;
+          raise_ers = 1'b1;
+          nextstate = WAIT_TPGS;
+
+        // The program needs PROG high. This includes mtest_wr plus VBITD and
+        // VBITU.
+        end else begin
+          if (mrcxctrl_peon_i) counter_ld_tpgsp = 1'b1;
+          else counter_ld_tpgs = 1'b1;
+          raise_prog = 1'b1;
+          nextstate = WAIT_TPGS;
+        end
+      end
+    end
+
+    MBIST_TTMH_VERIFY: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        counter_ld_ttmhp1 = 1'b1;
+        tmen_raise = 1'b1;
+        waddr_nvr_ld = 1'b1;
+        nextstate = MBIST_VERIFY;
+      end
+    end
+
+    MBIST_TTMR_VERIFY: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        tmen_lower = 1'b1;
+        if (mrcxctrl_peon_i) counter_ld_trwp = 1'b1;
+        else counter_ld_trw = 1'b1;
+        waddr_clr = 1'b1;
+        nextstate = MBIST_VERIFY;
+      end
+    end
+
+    MBIST_VERIFY: begin
+      counter_en = 1'b1;
+      if (counter_done) begin
+        mrd_w_en = 1'b1;
+        counter_ld_ttmr = 1'b1;
+        nextstate = MBIST_PEND;
+      end
+    end
+
+    MBIST_PEND: begin
+      counter_en = 1'b1;
+      if(rddone && rdinprog) datard_ld = 1'b1;
+      else if(!rdinprog) begin
+        // If we are done, we stop. This one is simpler than the WPÙLSE as we
+        // always read all addresses.
+        if ((waddr_nvr
+            || mtest_arrayonly && waddr_x_done
+            || redundancy_act && waddr_red_done)
+            && waddr_y_done) begin
+          fbc_cnt = 1'b1;
+
+          // We are done, so we tag any errors seen in the last row and
+          // clear the flag.
+          if (mverif == MBIST_REPAIR && (fbc_uncorr || badx)) begin
+            if (!already_repaired && repaircell == REDUNDANCY_FULL)
+              unrepairable_set = 1'b1;
+            else if (!already_repaired) tag_en = 1'b1;
+            badx_clr = 1'b1;
+          end
+
+          nextstate = MBIST_FBC;
+        // If we are changing the NVR, we need to change the TMEN first.
+        end else if (waddr_x_done && waddr_y_done)
+            begin
+          if (counter_done) begin
+            fbc_cnt = 1'b1;
+
+            // We are done with a Y, so we tag any errors seen and clear the
+            // recorded flag;
+            if (mverif == MBIST_REPAIR && (fbc_uncorr || badx)) begin
+              if (!already_repaired && repaircell == REDUNDANCY_FULL)
+                unrepairable_set = 1'b1;
+              else if (!already_repaired) tag_en = 1'b1;
+              badx_clr = 1'b1;
+            end
+
+            // And we are accessing the NVR so we need to wait the TTMH
+            counter_ld_ttmh = 1'b1;
+            if (waddr_is_diag && mtest_diag) datawr_shift = 1'b1;
+            nextstate = MBIST_TTMH_VERIFY;
+          end
+
+        // If we are not changing the NVR all we need to do is increment the
+        // address and do another read.
+        end else begin
+          fbc_cnt = 1'b1;
+          if (waddr_is_diag && mtest_diag) datawr_shift = 1'b1;
+
+          // If we are in the middle of the X, we then only record the
+          // bad X.
+          if (mverif == MBIST_REPAIR && !waddr_y_done && fbc_uncorr)
+            badx_set = 1'b1;
+
+          // If we are at the end of the X, we then need to tag it. We also need
+          // to clear the badX flag.
+          else if (mverif == MBIST_REPAIR && waddr_y_done &&
+              (fbc_uncorr || badx)) begin
+            if (!already_repaired && repaircell == REDUNDANCY_FULL)
+              unrepairable_set = 1'b1;
+            else if (!already_repaired) tag_en = 1'b1;
+            badx_clr = 1'b1;
+          end
+
+          waddr_inc = 1'b1;
+          counter_clr = 1'b1;
+          nextstate = MBIST_VERIFY;
+        end
+      end
+    end
+
+    MBIST_FBC: begin
+      counter_en = 1'b1;
+      // Now we look at the FBC to tell if we accept this or not.
+
+      // For the VBIT search we have multiple phases and that determines
+      // how we interpret the FBC.
+      if (mtest == MBIST_VBITD || mtest == MBIST_VBITU) begin
+        case (vbit_phase)
+          VBITPH_INIT: begin
+            if (mtest == MBIST_VBITU) vbitu_mid_ld = 1'b1;
+            else vbitd_mid_ld = 1'b1;
+            vbit_next = 1'b1;
+            waddr_clr = 1'b1;
+            nextstate = CFGLD;
+          end
+          VBITPH_INV: begin
+            if (mtest == MBIST_VBITU && fbc_sum < R1_WWL_SPEC) begin
+              vbitu_dec = 1'b1;
+            end else if (mtest == MBIST_VBITU) begin
+              vbitu_inc = 1'b1;
+              vbit_up = 1'b1;
+            end else if (mtest == MBIST_VBITD && fbc_sum < R0_WWL_SPEC) begin
+              vbitd_dec = 1'b1;
+            end else begin
+              vbitd_inc = 1'b1;
+              vbit_up = 1'b1;
+            end
+            vbit_next = 1'b1;
+            nextstate = MBIST_WRITE;
+          end
+          VBITPH_DOWN, VBITPH_UP: begin
+            // Does VBIT load happen before or after the w0/r0 ld
+            vbit_next = 1'b1;
+            waddr_clr = 1'b1;
+            nextstate = CFGLD;
+          end
+          VBITPH_DOWN_INV: begin
+            if (mtest == MBIST_VBITU && fbc_sum < R1_WWL_SPEC &&
+                vbitu != VBITU_MIN) begin
+              vbitu_dec = 1'b1;
+              vbit_next = 1'b1;
+            end else if (mtest == MBIST_VBITU && fbc_sum < R1_WWL_SPEC) begin
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end else if (mtest == MBIST_VBITU) begin
+              vbitu_inc = 1'b1;
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end else if (fbc_sum < R0_WWL_SPEC && vbitd != VBITD_MIN) begin
+              vbitd_dec = 1'b1;
+              vbit_next = 1'b1;
+            end else if (fbc_sum < R0_WWL_SPEC) begin
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end else begin
+              vbitd_inc = 1'b1;
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end
+            nextstate = MBIST_WRITE;
+          end
+          VBITPH_UP_INV: begin
+            if (mtest == MBIST_VBITU && fbc_sum >= R1_WWL_SPEC &&
+                vbitu != VBITU_MAX) begin
+              vbitu_inc = 1'b1;
+              vbit_next = 1'b1;
+            end else if (mtest == MBIST_VBITU && fbc_sum >= R1_WWL_SPEC) begin
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end else if (mtest == MBIST_VBITU) begin
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end else if (fbc_sum >= R0_WWL_SPEC && vbitd != VBITD_MAX) begin
+              vbitd_inc = 1'b1;
+              vbit_next = 1'b1;
+            end else if (fbc_sum >= R0_WWL_SPEC) begin
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end else begin
+              vbit_next = 1'b1;
+              vbit_stagedone = 1'b1;
+            end
+            nextstate = MBIST_WRITE;
+          end
+          VBITPH_INIT_2: begin
+            vbit_next = 1'b1;
+            waddr_clr = 1'b1;
+            nextstate = CFGLD;
+          end
+          VBITPH_INV_2: begin
+            if (counter_done) begin
+              if (mtest == MBIST_VBITU && fbc_sum < R1_FULL_SPEC) begin
+                if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+                mbist_done_en = 1'b1;
+                vbitu_offset_inc = 1'b1;
+                vbit_clr = 1'b1;
+                nextstate = INVALID;
+              end else if (mtest == MBIST_VBITU && vbitu == VBITU_MAX) begin
+                if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+                mbist_done_en = 1'b1;
+                mbist_fail_ld = 1'b1;
+                vbit_clr = 1'b1;
+                vbitu_offset_inc = 1'b1;
+                nextstate = INVALID;
+              end else if (mtest == MBIST_VBITU) begin
+                vbitu_inc = 1'b1;
+                vbit_next = 1'b1;
+                nextstate = MBIST_WRITE;
+              end else if (fbc_sum < R0_FULL_SPEC) begin
+                if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+                mbist_done_en = 1'b1;
+                vbitd_offset_inc = 1'b1;
+                vbit_clr = 1'b1;
+                nextstate = INVALID;
+              end else if (vbitd == VBITD_MAX) begin
+                if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+                mbist_done_en = 1'b1;
+                mbist_fail_ld = 1'b1;
+                vbit_clr = 1'b1;
+                vbitd_offset_inc = 1'b1;
+                nextstate = INVALID;
+              end else begin
+                vbitd_inc = 1'b1;
+                vbit_next = 1'b1;
+                nextstate = MBIST_WRITE;
+              end
+            end
+          end
+        endcase
+      // If we are doing a SATRIM and we hit a limit, we then jump out and
+      // take whatever we accepted.
+      end else if (mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN) begin
+        if (mtest == MBIST_SATRIMP && satrim == SATRIM_MAX ||
+            mtest == MBIST_SATRIMN && satrim == SATRIM_MIN) begin
+          mtest_inc = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+
+        // If we are doing a SATRIM and we hit the target, we then accept it.
+        // Note that we need to change the trim by an offset.
+        end else if (fbc_sum <= 2) begin
+          if (mtest == MBIST_SATRIMP) satrim_offset_inc = 1'b1;
+          else satrim_offset_dec = 1'b1;
+          mtest_inc = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+
+        // If we are in the first step, we then store the value and do it again.
+        end else if (mtest == MBIST_SATRIMP && satrim == SATRIM_MIN
+            || mtest == MBIST_SATRIMN && satrim == SATRIM_MAX) begin
+          lastfbc_store = 1'b1;
+          if (mtest == MBIST_SATRIMP) satrim_inc = 1'b1;
+          else satrim_dec = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+
+        // We check the delta, to make sure we are approaching the target. We
+        // can't use the fbc_delta though if the fbc adder has overflown.
+        end else if (!fbc_large && fbc_delta <= 'd11) begin
+          if (mtest == MBIST_SATRIMP) satrim_offset_inc = 1'b1;
+          else satrim_offset_dec = 1'b1;
+          mtest_inc = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+        
+        // If we have not hit the target yet, we then will go for the next case.
+        end else if (mtest == MBIST_SATRIMP && satrim == SATRIM_MIN + 6'd1
+            || mtest == MBIST_SATRIMN && satrim == SATRIM_MAX - 6'd1) begin
+          lastfbc_store = 1'b1;
+          if (mtest == MBIST_SATRIMP) satrim_inc = 1'b1;
+          else satrim_dec = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+
+        // Now we check the direction
+        end else if (fbc_gotworse) begin
+          if (mtest == MBIST_SATRIMP) satrim_dec2 = 1'b1;
+          else satrim_inc2 = 1'b1;
+          mtest_inc = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+
+        // Or we go for another loop.
+        end else begin
+          lastfbc_store = 1'b1;
+          if (mtest == MBIST_SATRIMP) satrim_inc = 1'b1;
+          else satrim_dec = 1'b1;
+          waddr_clr = 1'b1;
+          nextstate = CFGLD;
+        end
+
+      // For other operations, we check if the errors are ok or not.
+      end else if (mverif == MBIST_REPAIR && unrepairable && counter_done) begin
+        if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+        mbist_fail_ld = 1'b1;
+        mbist_done_en = 1'b1;
+        unrepairable_clr = 1'b1;
+        badx_clr = 1'b1;
+        nextstate = INVALID;
+      end else if (mverif != MBIST_REPAIR && fbc_fail && counter_done) begin
+        if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+        mbist_fail_ld = 1'b1;
+        mbist_done_en = 1'b1;
+        unrepairable_clr = 1'b1;
+        badx_clr = 1'b1;
+        nextstate = INVALID;
+      end else if (counter_done) begin
+        if (bypecc_static_i != meccbyps_o) counter_ld_ttmh = 1'b1;
+        mbist_done_en = 1'b1;
+        unrepairable_clr = 1'b1;
+        badx_clr = 1'b1;
+        nextstate = INVALID;
+      end
+    end
+
+    FULLRST: begin
+      counter_en = 1'b1;
+      if (counter_done && !forcerst) begin
+        rstreqdone_o = 1'b1;
+        lower_porb = 1'b1;
+        counter_ld_tpw = 1'b1;
+        nextstate = OFF;
+      end
+    end
+
+    RETB: begin
+      counter_en = 1'b1;
+      if (counter_done &&
+          (powerdown_i && !mtest_ret || mtest_ret && mverif == 2'b00)) begin
+        mbist_done_en = 1'b1;
+        lower_porb = 1'b1;
+        counter_ld_trd = 1'b1;
+        nextstate = PD;
+      end else if (counter_done &&
+          (!powerdown_i && !mtest_ret || mtest_ret && mverif == 2'b01)) begin
+        raise_retb = 1'b1;
+        counter_ld_trh = 1'b1;
+        nextstate = INACTIVE;
+      end
+    end
+
+    PD: begin
+      counter_en = 1'b1;
+      if (counter_done &&
+          (!powerdown_i && !mtest_ret || mtest_ret && mverif == 2'b01)) begin
+        raise_porb = 1'b1;
+        nextstate = RETB;
+      end
+    end
+
+    DPD: begin
+      counter_en = 1'b1;
+      if (counter_done && !deeppowerdown_i) begin
+        lower_dpd = 1'b1;
+        counter_ld_tdpdh = 1'b1;
+        nextstate = INACTIVE;
+      end else if (counter_done && !mdpd_o) begin
+        raise_dpd = 1'b1;
+      end
+    end
+
+    default: nextstate = INVALID;
+  endcase
+end
+
+assign writeok = mrcxctrl_mode_i == MODE_PGM ||
+  mrcxctrl_mode_i == MODE_ERSPGM || mrcxctrl_mode_i == MODE_ERS;
+
+////////////////////////////////////////////////////////////////////////////////
+// Read Address Latch
+////////////////////////////////////////////////////////////////////////////////
+// We need to store the last address so that we can do reads and erases. We
+// also need this due to repeated reads to the same mram word.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_SADDR
+  if (!hreset_n_i) begin
+    {saddr_nvr, saddr_x, saddr_y, saddr_mwa, saddr_ba} <= {HADDR_WIDTH{1'b0}};
+  end else if (saddr_ld) begin
+    {saddr_nvr, saddr_x, saddr_y, saddr_mwa, saddr_ba} <= haddr_i;
+  end
+end
+
+// We need to know what is the next read as we preread the following word
+// after a command.
+always @(*) begin : BLK_SADDR_MATCH
+  saddr_next_nvr = saddr_nvr;
+  {saddr_next_x, saddr_next_y} = {saddr_x, saddr_y} + 1'd1;
+  saddr_next_mwa = {MWADDR_WIDTH{1'b0}};
+  saddr_next_ba = 2'd0;
+
+  if (haddr_nvr != saddr_nvr) saddr_match = 1'b0;
+  else if (haddr_x != saddr_x) saddr_match = 1'b0;
+  else if (haddr_y != saddr_y) saddr_match = 1'b0;
+  else saddr_match = 1'b1;
+
+  if (haddr_nvr != saddr_next_nvr) saddr_next_match = 1'b0;
+  else if (haddr_x != saddr_next_x) saddr_next_match = 1'b0;
+  else if (haddr_y != saddr_next_y) saddr_next_match = 1'b0;
+  else saddr_next_match = 1'b1;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// Write Address Latc
+////////////////////////////////////////////////////////////////////////////////
+// Like with the reads, we need a latch for the writes.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_WADDR
+  if (!hreset_n_i) begin
+    {waddr_nvr, waddr_x, waddr_y, waddr_mwa, waddr_ba} <= {HADDR_WIDTH{1'b0}};
+    wsize <= 3'b000;
+  end else if (waddr_clr) begin
+    {waddr_nvr, waddr_x, waddr_y, waddr_mwa, waddr_ba} <= {HADDR_WIDTH{1'b0}};
+    wsize <= 3'b000;
+  end else if (waddr_vbit_ld) begin
+    waddr_nvr <= 1'b0;
+    waddr_x <= VBITPH_STARTADDR;
+    waddr_y <= {Y_WIDTH{1'b0}};
+    waddr_mwa <= {MWADDR_WIDTH{1'b0}};
+    waddr_ba <= 2'b00;
+    wsize <= 3'b000;
+  end else if (waddr_nvr_ld) begin
+    waddr_nvr <= 1'b1;
+    waddr_x <= {X_WIDTH{1'b0}};
+    waddr_y <= {Y_WIDTH{1'b0}};
+    waddr_mwa <= {MWADDR_WIDTH{1'b0}};
+    waddr_ba <= 2'b00;
+    wsize <= 3'b000;
+  end else if (waddr_diag_inc || waddr_sec_inc || waddr_inc || waddr_cfg_inc ||
+      waddr_skip_inc) begin
+    waddr_nvr <= waddr_next_nvr;
+    waddr_x <= waddr_next_x;
+    waddr_y <= waddr_next_y;
+    waddr_mwa <= waddr_next_mwa;
+    waddr_ba <= waddr_next_ba;
+  end else if (waddr_ld) begin
+    {waddr_nvr, waddr_x, waddr_y, waddr_mwa, waddr_ba} <= haddr_i;
+    wsize <= hsize_i;
+  end
+end
+
+// The Config access reuses the write address, so we use the waddr to calculate
+// the otpcnt, the position of the config upload/download. We also need to
+// find out where we are in the flow.
+assign otpfull = {waddr_nvr, waddr_x, waddr_y, waddr_mwa, waddr_ba};
+assign otpcnt = otpfull[4:0];
+assign otpaddr = otpfull[8:5];
+assign otp_rdok = otpcnt == 5'd30;
+assign otp_done = otpcnt == 5'd00;
+assign config_done = otpaddr == CONFIGCYCS && otpcnt == CONFIGLASTBITS-1;
+assign config_185 = otpaddr == CONFIGCYCS && otpcnt == CONFIGLASTBITS;
+
+// And we need to calculate the next address. It is not always so simple.
+always @(*) begin : BLK_WADDR_NEXT
+  // On a sector increment, we clear the Y and row part of the X. We then
+  // increment the rest.
+  if (waddr_sec_inc) begin
+    {waddr_next_nvr, waddr_next_x} =
+      {waddr_nvr, waddr_x[X_WIDTH-1:2], 2'b00} + 3'b100;
+    waddr_next_y = {Y_WIDTH{1'b0}};
+    waddr_next_mwa = {MWADDR_WIDTH{1'b0}};
+    waddr_next_ba = 2'b00;
+  // For the diag we increment the X and Y together.
+  end else if (waddr_diag_inc) begin
+    {waddr_next_nvr, waddr_next_x} = {waddr_nvr, waddr_x} + 1'b1;
+    waddr_next_y = waddr_next_x[Y_WIDTH-1:0]
+      + {waddr_next_nvr, waddr_next_x[X_WIDTH-1:Y_WIDTH]};
+    waddr_next_mwa = {MWADDR_WIDTH{1'b0}};
+    waddr_next_ba = 2'b00;
+  // The skip increment is used by the config/otp flow when we reuse the waddr.
+  end else if (waddr_skip_inc) begin
+    {waddr_next_nvr, waddr_next_x, waddr_next_y, waddr_next_mwa, waddr_next_ba}
+      = {otpfull[WADDR_WIDTH-1:5], 5'd0} + 6'b100000;
+  // This one just goes to the next word, again in the config/otp flow.
+  end else if (waddr_cfg_inc) begin
+    {waddr_next_nvr, waddr_next_x, waddr_next_y, waddr_next_mwa, waddr_next_ba}
+      = otpfull + 1'd1;
+  // For the other cases we are dealing with verify or writge so we increment
+  // one Y at a time.
+  end else begin
+    waddr_next_mwa = {MWADDR_WIDTH{1'b0}};
+    waddr_next_ba = 2'b00;
+`ifndef FASTSIM
+    // In the case of the normal mode we just do a sum.
+    {waddr_next_nvr, waddr_next_x, waddr_next_y} =
+      {waddr_nvr, waddr_x, waddr_y} + 1'd1;
+`else
+    // For the others we have a pattern.
+    waddr_next_y = waddr_y;
+    waddr_next_x = waddr_x;
+    waddr_next_nvr = waddr_nvr;
+    // We begin incrementing the LSB. If we have 00, 01 or 11, we increment
+    // it normally.
+    if (waddr_y[1:0] != 2'b11) waddr_next_y = waddr_y + 7'd1;
+    // If we see the case when we have all zeroes except for 11 at the bottom,
+    // we do a jump to the end of the awway, where we get the all ones except
+    // for the LSBs at zero.
+    else if (waddr_y == 7'd3) waddr_next_y = 7'b1111100;
+    // And if we get here we must be in the all high case, so we can go to
+    // the next value of X. We also skip many values of X.
+    else begin
+      // We clear the Y and then increment the value.
+      waddr_next_y = 7'd0;
+      // We want to do the sequence: 0,1,2,3,f. T
+      if (waddr_x < 9'd3) waddr_next_x = waddr_x + 9'd1;
+      else if (waddr_x == 9'd3) waddr_next_x = 9'h00f;
+      else if (waddr_x[3:0] == 4'd0) waddr_next_x[3:0] = 4'hf;
+      else if (waddr_x[5:0] == 6'h0f) waddr_next_x[5:0] = 6'h30;
+      else if (waddr_x[7:0] == 8'h3f) waddr_next_x[7:0] = 8'hc0;
+      else if (waddr_x[7:0] == 8'hff) begin
+        waddr_next_x[7:0] = 8'd0;
+        {waddr_next_nvr, waddr_next_x[8]} = {waddr_nvr, waddr_x[8]} + 2'd1;
+      end
+    end
+`endif
+  end
+end
+
+// In the diagonal test cases we only write to the cases when X and Y are the
+// same, plus a shift that occurs at every 64 rows.
+assign waddr_is_diag = waddr_x[Y_WIDTH-1:0] ==
+  waddr_y - {{Y_WIDTH - (1 + X_WIDTH-Y_WIDTH){1'b0}},
+  waddr_nvr, waddr_x[X_WIDTH-1:Y_WIDTH]};
+
+// The done signals are needed as the last address in a write operation can
+// depend on the operation.
+assign waddr_y_done = waddr_y == {Y_WIDTH{1'b1}};
+assign waddr_x_done = waddr_x == {X_WIDTH{1'b1}};
+assign waddr_red_done = waddr_x == {{X_WIDTH-2{1'b0}},2'b10};
+assign waddr_sec_done = waddr_x[X_WIDTH-1:ROW_WIDTH]=={X_WIDTH-ROW_WIDTH{1'b1}};
+
+// The match signal is needed to know if the next write is in the same
+// MRAM word as the current word.
+always @(*) begin : BLK_WADDR_MATCH
+  if (haddr_nvr != waddr_nvr) waddr_match = 1'b0;
+  else if (haddr_x != waddr_x) waddr_match = 1'b0;
+  else if (haddr_y != waddr_y) waddr_match = 1'b0;
+  else waddr_match = 1'b1;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// MRAM Address Generation
+////////////////////////////////////////////////////////////////////////////////
+// Depending on the operation we get the MRAM address from a different place.
+always @(*) begin : BLK_MRD
+  if (merase_o || mprog_o) begin
+    mrd = 1'b0;
+    mnvr = waddr_nvr;
+    maddr = {waddr_x, waddr_y};
+  end else if (mrd_next_en) begin
+    mrd = 1'b1;
+    mnvr = saddr_next_nvr;
+    maddr = {saddr_next_x, saddr_next_y};
+  end else if (mrd_s_en) begin
+    mrd = 1'b1;
+    mnvr = saddr_nvr;
+    maddr = {saddr_x, saddr_y};
+  end else if (mrd_w_en) begin
+    mrd = 1'b1;
+    mnvr = waddr_nvr;
+    maddr = {waddr_x, waddr_y};
+  end else if (mrd_h_en && !NOQUICKHREAD) begin
+    mrd = 1'b1;
+    mnvr = haddr_nvr;
+    maddr = {haddr_x, haddr_y};
+  end else if (!NOQUICKHREAD) begin
+    mrd = 1'b0;
+    mnvr = haddr_nvr;
+    maddr = {haddr_x, haddr_y};
+  end else begin
+    mrd = 1'b0;
+    mnvr = saddr_nvr;
+    maddr = {saddr_x, saddr_y};
+  end
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// AHB Address Checks
+////////////////////j///////////////////////////////////////////////////////////// For the AHB, when a request is comming in, we need to know when we finished
+// a MRAM word. We then break the haddr_i into the multiple fields and then
+// calculate hfirst and hlast.
+always @(*) begin : BLK_HADDR
+  {haddr_nvr, haddr_x, haddr_y, haddr_mwa, haddr_ba} = haddr_i;
+  if (hsize_i == 3'b000) begin
+    mw_hlast = haddr_mwa == {MWADDR_WIDTH{1'b1}} && haddr_ba == 2'b11;
+    mw_hfirst = haddr_mwa == {MWADDR_WIDTH{1'b0}} && haddr_ba == 2'b00;
+  end else if (hsize_i == 3'b001) begin
+    mw_hlast = haddr_mwa == {MWADDR_WIDTH{1'b1}} && haddr_ba[1] == 1'b1;
+    mw_hfirst = haddr_mwa == {MWADDR_WIDTH{1'b0}} && haddr_ba[1] == 1'b0;
+  end else begin // We do not support HSIZES over 010.
+    mw_hlast = haddr_mwa == {MWADDR_WIDTH{1'b1}};
+    mw_hfirst = haddr_mwa == {MWADDR_WIDTH{1'b0}};
+  end
+end
+
+// An additional field is the HBURST. Sometimes we want to preread the
+// next read. We then use this setting to find out if the user wants to
+// always guess and preread, or if it should only do this if the HBURST field
+// hints at it.
+always @(*) begin : BLK_PREREAD_OK
+  if (hburst_i == HBURST_INCR || mrcxop_aburst_i) preread_ok = 1'b1;
+  else if (hburst_i == HBURST_SINGLE) preread_ok = 1'b0;
+  // We currently do not support WRAPx and INCRx so we just assume for these
+  // that we need to preread, so we will have a wasted read at the end.
+  else preread_ok = 1'b1;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// TMEN
+////////////////////////////////////////////////////////////////////////////////
+// When exiting or entering the NVR we need to give some extra time to switch
+// the TMEN signal. We then need to know if the current address is switching
+// the tmen signal.
+assign ishaddr_tmenchg = haddr_nvr ^ mtmen_o;
+assign iswaddr_tmenchg = waddr_nvr ^ mtmen_o;
+assign issaddr_tmenchg = saddr_nvr ^ mtmen_o;
+
+// And when the FSM signals, we update the tmen signal.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_TMEN
+  if (!hreset_n_i) mtmen_o <= 1'b0;
+  else if (tmen_h_ld) mtmen_o <= haddr_nvr;
+  else if (tmen_s_ld) mtmen_o <= saddr_nvr;
+  else if (tmen_w_ld) mtmen_o <= waddr_nvr;
+  else if (tmen_lower) mtmen_o <= 1'b0;
+  else if (tmen_raise) mtmen_o <= 1'b1;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// MDLY
+////////////////////////////////////////////////////////////////////////////////
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_RDSTATE
+  if (!hreset_n_i) rdstate <= IDLE;
+  else if (forcerst) rdstate <= IDLE;
+  else rdstate <= rdnextstate;
+end
+
+always @(*) begin : BLK_RDNEXTSTATE
+  rdnextstate = rdstate;
+  rddone = 1'b0;
+  addi_ld = 1'b0;
+
+  case (rdstate)
+    IDLE: begin
+      rddone = 1'b1;
+      // If we see a read and we are using the MRDY input, we jump to PEND to
+      // wait for the signal.
+      if (mrd && mrcxop_userdy_i == 4'b0000) rdnextstate = PENDLOW;
+      // If we are not using the RDY we jump to RDWAIT to wait for the counter
+      // to expire.
+      else if (mrd) begin
+        addi_ld = 1'b1;
+        rdnextstate = RDWAIT;
+      end
+    end
+
+    // We wait for mrdy to go low.
+    PENDLOW: if (!mrdy_sync) rdnextstate = PEND;
+
+    // Now we wait for MRDY to go high and we then go to idle. If there is
+    // an extra delay requested, we count it first.
+    PEND: begin
+      if (mrdy_sync && mrcxop_addi_i == 4'd0) begin
+        rddone = 1'b1;
+        addi_ld = 1'b1;
+        rdnextstate = IDLE;
+      // If there is a addi, we then we load the timer and go to wait.
+      end else if (mrdy_sync) begin
+        addi_ld = 1'b1;
+        rdnextstate = RDWAIT;
+      end
+    end
+    // For wait all we do is wait for the timer to expire and raise done.
+    default: begin
+      if (mdly_done) begin
+        rddone = 1'b1;
+        rdnextstate = IDLE;
+      end
+    end
+  endcase
+end
+assign rdinprog = rdstate != IDLE;
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MDLY
+  if (!hreset_n_i) mdly <= 5'd0;
+  else if (forcerst) mdly <= 5'd0;
+
+  // In automatic mode we do not need the standard delay. All we do is get the
+  // additional delay.
+  else if (addi_ld && mrcxop_userdy_i == 4'b0000) mdly <= {1'b0, mrcxop_addi_i};
+
+  // For manual mode we take in the standard delay from the div and then add
+  // the additional delay.
+  else if (addi_ld) mdly <= rddly + mrcxop_addi_i;
+
+  // And we decrement the counter if it is not done.
+  else if (!mdly_done) mdly <= mdly - 5'd1;
+end
+assign mdly_done = mdly == 5'd0;
+
+// The automatic mode we tell from a the parameter.
+assign rddly =
+    {4{mrcxop_div_i == CLKRATE_25}} & RDDLY_25 |
+    {4{mrcxop_div_i == CLKRATE_50}} & RDDLY_50 |
+    {4{mrcxop_div_i == CLKRATE_75}} & RDDLY_75 |
+    {4{mrcxop_div_i == CLKRATE_100}} & RDDLY_100 |
+    {4{mrcxop_div_i == CLKRATE_125}} & RDDLY_125 |
+    {4{mrcxop_div_i == CLKRATE_150}} & RDDLY_150 |
+    {4{mrcxop_div_i == CLKRATE_200}} & RDDLY_200 |
+    {4{mrcxop_div_i == CLKRATE_250}} & RDDLY_250;
+
+assign mrdyrst_n = mpor_n_o && (mrdy_i || mrcxop_userdy_i != 4'b0000);
+
+////////////////////////////////////////////////////////////////////////////////
+// Synchronization
+////////////////////////////////////////////////////////////////////////////////
+// The done_i or mrdy_i signal can take a bit of time to finish, so we can get
+// a false done. They are also asynchronous, so we need to synchronize them.
+
+// If we just do a synccell on mrdy_i, we can miss the low time entirely. We
+// then go to this reset synchronizer and standard synchronizer blend. The
+// mrdy_i will lower only the meta flop and the following mrdy_sync flop will
+// take the safe value. Then we know we will always get a low cycle.
+always @(posedge hclk_i or negedge mrdyrst_n) begin : BLK_MRDY_META
+   if (!mrdyrst_n) mrdy_meta <= 1'b0;
+   else mrdy_meta <= 1'b1;
+end
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MRDY_SYNC
+   if (!hreset_n_i) mrdy_sync <= 1'b1;
+   else mrdy_sync <= mrdy_meta;
+end
+
+// The done signal is much slower, so we can use a standard synchronizer for it.
+// Once it rises done_sync goes high. The FSM then knows it will have to wait
+// a few cycles to sample the gone low done_i.
+sync_cell i_sync_cell_rxd(.clk_i(hclk_i), .rst_n_i(hreset_n_i),
+   .data_i(done_i), .sync_o(done_sync));
+
+////////////////////////////////////////////////////////////////////////////////
+// Data Buffers
+////////////////////////////////////////////////////////////////////////////////
+assign hresp_o = {1'b0, err};
+
+always @(*) begin : BLK_HRDATA
+  if (!readok) hrdata_o = {DATA_WIDTH{1'b0}};
+  else hrdata_o = datard[saddr_mwa * DATA_WIDTH +: DATA_WIDTH];
+end
+
+// We need to delay the data write as the AHB gives the address in one cycle
+// and the data to write in the following cycle.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_DATAWL_LD
+  if (!hreset_n_i) datawr_ld <= 1'b0;
+  else if (store_next) datawr_ld <= 1'b1;
+  else datawr_ld <= 1'b0;
+end
+
+// For most MBIST options we drive a simple pattern on the MDI. For others we
+// use the datawr buffer.
+always @(*) begin : BLK_MDI
+  case (mtest)
+    // These commands all write all bits, including the ECC.
+    MBIST_WR0, MBIST_WR1, MBIST_VBITU, MBIST_VBITD:
+       mdi_o = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b1}};
+    // The checkerboard commands will program only the even or only the odd
+    // bits.
+    MBIST_CKBD, MBIST_SATRIMP, MBIST_SATRIMN:
+      if (waddr_x[0]) mdi_o = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b01}};
+      else mdi_o = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b10}};
+    // The inverse checkerboard just inverts the pattern.
+    MBIST_ICKBD:
+      if (waddr_x[0]) mdi_o = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b10}};
+      else mdi_o = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b01}};
+    // The walk0 we write only a diagona. The walk1 seems to have been dropped
+    // as to erase a diagonal we wind up with a conflict with the ECC. then we
+    // instead write all but the diagonal.
+    MBIST_WLK0:
+      if (waddr_is_diag) mdi_o = {{ECC_WIDTH{1'b0}}, datawr};
+      else mdi_o = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+    MBIST_WLK1:
+      if (waddr_is_diag) mdi_o = ~{{ECC_WIDTH{1'b0}}, datawr};
+      else mdi_o = ~{ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+    // Then we handle the regular commands.
+    default:
+      // For erases without the BYPASS we need to erase everything, we have
+      // no choice.
+      if (merase_o && !bypecc_static_i)
+        mdi_o = {ECC_WIDTH+DATA_WIDTH*MW_WORDS{1'b1}};
+      // For ERSPGM we also need to erase everything.
+      else if (mrcxctrl_mode_i == MODE_ERSPGM && merase_o)
+        mdi_o = {ECC_WIDTH+DATA_WIDTH*MW_WORDS{1'b1}};
+      // For word erase without ECC we just erase the requested bits.
+      else if (merase_o) mdi_o = {{ECC_WIDTH{1'b0}}, datawr};
+      // For program we write only the requested bits.
+      else mdi_o = {{ECC_WIDTH{1'b0}}, ~datawr};
+  endcase
+end
+ 
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_DATAWR
+  if (!hreset_n_i) datawr <= {DATA_WIDTH * MW_WORDS{1'b1}};
+  else if (datawr_clr) datawr <= {DATA_WIDTH * MW_WORDS{1'b1}};
+  else if (datawr_diag_ld) datawr <= {{DATA_WIDTH * MW_WORDS-1{1'b0}}, 1'b1};
+  else if (datawr_shift) datawr <=
+    {datawr[DATA_WIDTH*MW_WORDS-2:0], datawr[DATA_WIDTH*MW_WORDS-1]};
+  else if (datawr_ld && wsize == 3'b000)
+    datawr[{waddr_mwa, waddr_ba}*8+:8] <= hwdata_i[waddr_ba*8+:8];
+  else if (datawr_ld && wsize == 3'b001)
+    datawr[{waddr_mwa, waddr_ba[1]}*16+:16] <= hwdata_i[waddr_ba[1]*16+:16];
+  else if (datawr_ld)
+    datawr[waddr_mwa*32+:32] <= hwdata_i;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_DARARD
+  if (!hreset_n_i) datard <= {ECC_WIDTH+DATA_WIDTH*MW_WORDS-1{1'b0}};
+  else if (datard_ld && meccbyps_o) datard <= mdo_i;
+  else if (datard_ld)
+     datard <= {{ECC_WIDTH{1'b0}},mdo_i[DATA_WIDTH * MW_WORDS - 1:0]};
+end
+
+// We do not support dualword and quadword reads, so we return a fatal error
+// if we see one.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_ERR
+  if (!hreset_n_i) err <= 1'b0;
+  else if (datawr_ld && hsize_i > 3'b010) err <= 1'b1;
+  else err <= 1'b0;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// Program and Erase Pulse
+////////////////////////////////////////////////////////////////////////////////
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_PULSE
+  if (!hreset_n_i) begin
+    mprogen_o <= 1'b0;
+    mprog_o <= 1'b0;
+    merase_o <= 1'b0;
+    msce_o <= 1'b0;
+    mchip_o <= 1'b0;
+  end else if (forcerst) begin
+    mprogen_o <= 1'b0;
+    mprog_o <= 1'b0;
+    merase_o <= 1'b0;
+    msce_o <= 1'b0;
+    mchip_o <= 1'b0;
+  end else begin
+    if (raise_progen) mprogen_o <= 1'b1;
+    else if (lower_progen) mprogen_o <= 1'b0;
+    if (raise_prog) mprog_o <= 1'b1;
+    else if (lower_prog) mprog_o <= 1'b0;
+    if (raise_ers) merase_o <= 1'b1;
+    else if (lower_ers) merase_o <= 1'b0;
+    if (raise_sers) msce_o <= 1'b1;
+    else if (lower_sers) msce_o <= 1'b0;
+    if (raise_cers) mchip_o <= 1'b1;
+    else if (lower_cers) mchip_o <= 1'b0;
+  end
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// Error Handling
+////////////////////////////////////////////////////////////////////////////////
+assign ecor_o = datard_ld & ec_i;
+assign eunc_o = datard_ld & ud_i;
+
+////////////////////////////////////////////////////////////////////////////////
+// Timer
+////////////////////////////////////////////////////////////////////////////////
+// We use a one-hot mux to quickly get the value of the counter target for
+// 100MHz.
+always @(*) begin : BLK_COUNTER_MUX
+  // We first use a one-hot mux to ge
+  counter_mux =
+     {16{counter_ld_tpw}} & TPW_WAIT |
+     {16{counter_ld_trd}} & TRD_WAIT |
+     {16{counter_ld_trh}} & TRH_WAIT |
+     {16{counter_ld_trsr}} & TRSR_WAIT |
+     {16{counter_ld_tsur}} & TSUR_WAIT |
+     {16{counter_ld_tsuw}} & TSUW_WAIT |
+     {16{counter_ld_trsw}} & TRSW_WAIT |
+     {16{counter_ld_trswscan}} & TRSWSCAN_WAIT |
+     {16{counter_ld_ttmh | counter_ld_ttmhp1}} & TTMH_WAIT |
+     {16{counter_ld_ttmr}} & TTMR_WAIT |
+     {16{counter_ld_tpgs}} & TPGS_WAIT |
+     {16{counter_ld_tpgsp}} & TPGSP_WAIT |
+     {16{counter_ld_trw}} & TRW_WAIT |
+     {16{counter_ld_trwp}} & TRWP_WAIT |
+     {16{counter_ld_tadsx}} & TADSX_WAIT |
+     {16{counter_ld_tadsy}} & TADSY_WAIT |
+     {16{counter_ld_tdpds}} & TDPDS_WAIT |
+     {16{counter_ld_tdpdh}} & TDPDH_WAIT |
+     {16{counter_ld_tckhm}} & TCKHM_WAIT |
+     {16{counter_ld_tckh}} & TCKH_WAIT;
+
+  // We now calculate half and a quarter of that value always rounded up.
+  // To round up all we need to do is see if there is a fractional part.
+  mux_half = {1'b0, counter_mux[15:1]} + {15'd0, counter_mux[0]};
+  mux_quarter = {2'b00, counter_mux[15:2]} + {15'd0, (|counter_mux[1:0])};
+  mux_double = {counter_mux[14:0], 1'b0};
+
+  // Now we can calculate the counter value target for each clock rate.
+  case (mrcxop_div_i)
+     CLKRATE_25: counter_val = mux_quarter;
+     CLKRATE_50: counter_val = mux_half;
+     CLKRATE_75: counter_val = mux_quarter + mux_half;
+     CLKRATE_100: counter_val = counter_mux;
+     CLKRATE_125: counter_val = counter_mux + mux_quarter;
+     CLKRATE_150: counter_val = counter_mux + mux_half;
+     CLKRATE_200: counter_val = mux_double;
+     default: counter_val = mux_double + mux_half;
+  endcase
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_DPDTIMER
+   if (!hreset_n_i) counter <= (TRT_WAIT<<1)+(TRT_WAIT>>1);
+   else if (counter_clr) counter <= 16'd0;
+   else if (counter_ld_tsmall) counter <= 16'd1;
+   else if (counter_ld_tthree) counter <= 16'd2;
+   // Some of the delays occur at the same time we set some address or other
+   // field so we need an additional delay of 1 cycle.
+   else if (counter_ld_ttmhp1 || counter_ld_trw || counter_ld_tadsy ||
+         counter_ld_tpgsp || counter_ld_trwp || counter_ld_tadsx)
+      counter <= counter_val;
+   // Other delays do not need this.
+   else if (counter_ld_tpw || counter_ld_trd || counter_ld_trh ||
+      counter_ld_trsr || counter_ld_tsur || counter_ld_tsuw ||
+      counter_ld_trsw || counter_ld_trswscan || counter_ld_ttmh ||
+      counter_ld_ttmr || counter_ld_tpgs ||
+      counter_ld_tdpds|| counter_ld_tdpdh|| counter_ld_tckhm||
+      counter_ld_tckh) counter <= counter_val - 16'd1;
+  else if (!counter_done && counter_en) counter <= counter - 16'd1;
+end
+assign counter_done = counter == 16'd0;
+
+////////////////////////////////////////////////////////////////////////////////
+// Config Interface
+////////////////////////////////////////////////////////////////////////////////
+// The otpdefs has the current values that will be written on the next config
+// load. This is what the block will usually load in MBIST mode. When being
+// loaded via the PLOAD register, then all bits can be driven.
+reg [191:0] otpdefs;
+always @(*) begin : BLK_OTPDEFS
+   otpdefs[191:185] = 7'd0; // non existant bits
+   // In redundancy act, we load the trims with codes to replace rows 0, 1, and
+   // 2 so that we can test them. In regular mode we load them with the
+   // redundancy values.
+   if (redundancy_act) begin
+     otpdefs[184:175] = {1'b1,{X_WIDTH-2{1'b0}},2'b10};
+     otpdefs[174:165] = {1'b1,{X_WIDTH-2{1'b0}},2'b01};
+     otpdefs[164:155] = {1'b1,{X_WIDTH-2{1'b0}},2'b00};
+   end else begin
+     otpdefs[184:175] = redcel[2];
+     otpdefs[174:165] = redcel[1];
+     otpdefs[164:155] = redcel[0];
+   end
+   otpdefs[154]     = 1'b1;
+   otpdefs[153:148] = satrim;
+   otpdefs[147:137] = 11'd0;
+   otpdefs[136]     = 1'b0;
+   otpdefs[135:134] = 2'b00;
+   otpdefs[133]     = 1'b0;
+   otpdefs[132:131] = 2'b00;
+   otpdefs[130]     = 1'b0;
+   otpdefs[129:128] = 2'b00;
+   otpdefs[127]     = 1'b0;
+   otpdefs[126:125] = 2'b00;
+   otpdefs[124:122] = 3'b001;
+   otpdefs[121:119] = 3'b000;
+   otpdefs[118]     = 1'b0;
+   otpdefs[117:116] = 2'b00;
+   otpdefs[115:113] = 3'b011; // Number of Write Pulses, set to 3.
+   otpdefs[112:108] = 5'd0;
+   otpdefs[107:101] = 7'd65;
+   otpdefs[100:97]  = zcal;
+   otpdefs[96:93]   = 4'b0010;
+   otpdefs[92:89]   = 4'b0001;
+   otpdefs[88:85]   = 4'b0000;
+   otpdefs[84:81]   = 4'b0010;
+   otpdefs[80:77]   = 4'b0100;
+   otpdefs[76:71]   = vbitu;
+   otpdefs[70:65]   = vbitd;
+   otpdefs[64:59]   = 6'd35;
+   otpdefs[58:53]   = 6'd43;
+   otpdefs[52:47]   = 6'd51;
+   otpdefs[46:41]   = 6'b000101;
+   otpdefs[40]      = 1'b1;
+   otpdefs[39:32]   = 8'd0;
+   otpdefs[32]      = (mtest == MBIST_ZCAL) ? 1'b1 : 1'b0;
+   otpdefs[31:0]    = 32'd0;
+end
+
+// The value loaded into the configuration will depend on the bist mode
+// selected.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_OTPVAL
+  if (!hreset_n_i) otpval <= 32'd0;
+  // In a scan test or retention test we load a specific pattern.
+  else if (otpval_ld && mtest == MBIST_CFGRSTTEST) otpval <= {32{1'b0}};
+  else if (otpval_ld && mtest == MBIST_ZERORET) otpval <= {32{1'b0}};
+  else if (otpval_ld && mtest == MBIST_CFGSETTEST) otpval <= {32{1'b1}};
+  else if (otpval_ld && mtest == MBIST_ONERET) otpval <= {32{1'b1}};
+  // In the test1 and test0 pattern tests we load all the same except for
+  // one bit that is different.
+  else if (otpval_ld && mtest == MBIST_CFG1TEST && otpaddr == 4'd0)
+    otpval <= {{30{1'b0}}, 1'b1, 1'b0};
+  else if (otpval_ld && mtest == MBIST_CFG1TEST) otpval <= {32{1'b0}};
+  else if (otpval_ld && mtest == MBIST_CFG0TEST && otpaddr == 4'd0)
+    otpval <= {{30{1'b1}}, 1'b1, 1'b0};
+  else if (otpval_ld && mtest == MBIST_CFG0TEST) otpval <= {32{1'b1}};
+  // In the remaining bist test modes we will load the otpdefs with a few
+  // arguments replaced. This will load a default set with just one argument
+  // updated.
+  else if (otpval_ld && (mtest == MBIST_CFGLDTEST || mtest == MBIST_SATRIMP ||
+      mtest == MBIST_SATRIMN || mtest == MBIST_SATRIM_DONE ||
+      mtest == MBIST_REDUNDANCY ||
+      mtest == MBIST_VBITD || mtest == MBIST_VBITU || mtest == MBIST_ZCAL ||
+      mtest_ret && mverif == 2'b01))
+    otpval <= otpdefs[otpaddr*32+:32];
+  // OTP Pload will load a specific set of values given by the CPU.
+  else if (otpval_ld) otpval <= cfgdin_i;
+
+  // And when not loading the otpval register, we just shift the value in the
+  // register to get the next bit.
+  else if (otpshift_en) otpval <= {1'b0, otpval[31:1]};
+end
+assign msdi_o = otpval[0];
+
+// Anytime we load a value into the otpval register we need to tell the PLOAD
+// register that the value has been loaded and therefore it can send the next
+// word.
+assign cfgwrok_o = otpval_ld & cfgwr_i;
+
+// These are driven by the FSM.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MSCLK
+  if (!hreset_n_i) msclk_o <= 1'b0;
+  else if (forcerst) msclk_o <= 1'b0;
+  else if (raise_cfgsclk) msclk_o <= 1'b1;
+  else if (lower_cfgsclk) msclk_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MSUPD
+  if (!hreset_n_i) msupd_o <= 1'b0;
+  else if (forcerst) msupd_o <= 1'b0;
+  else if (raise_msupd) msupd_o <= 1'b1;
+  else if (lower_msupd) msupd_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MSHIFT
+  if (!hreset_n_i) mshift_o <= 1'b0;
+  else if (forcerst) mshift_o <= 1'b0;
+  else if (raise_mshift) mshift_o <= 1'b1;
+  else if (lower_mshift) mshift_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_FORCERST
+  if (!hreset_n_i) forcerst <= 1'b0;
+  else if (raise_forcerst) forcerst <= 1'b1;
+  else forcerst <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MRET
+  if (!hreset_n_i) mret_n_o <= 1'b0;
+  else if (raise_retb) mret_n_o <= 1'b1;
+  else if (lower_retb) mret_n_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MCE
+  if (!hreset_n_i) mce_n_o <= 1'b1;
+  else if (raise_mce) mce_n_o <= 1'b1;
+  else if (lower_mce) mce_n_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MRST
+  if (!hreset_n_i) mrst_n_o <= 1'b0;
+  else if (raise_rstb) mrst_n_o <= 1'b1;
+  else if (lower_rstb) mrst_n_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MPOR
+  if (!hreset_n_i) mpor_n_o <= 1'b0;
+  else if (raise_porb) mpor_n_o <= 1'b1;
+  else if (lower_porb) mpor_n_o <= 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MDPD
+  if (!hreset_n_i) mdpd_o <= 1'b0;
+  else if (raise_dpd) mdpd_o <= 1'b1;
+  else if (lower_dpd) mdpd_o <= 1'b0;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// MBIST
+////////////////////////////////////////////////////////////////////////////////
+// We define what initiates a test:
+assign mtestld =
+  // If we get a trim write.
+  mrcxtrim_we_i ||
+  // If we get a mbist write and the code is not zero (which is a NOP) and
+  // we are not in one of the modes that need an exit.
+  mbist_i && mbisttest_i != MBIST_NONE && mtest != MBIST_DUMP &&
+  mtest != MBIST_ZCAL && !mtest_ret ||
+  // MTEST retention we accept the verif change.
+  mbist_i && mtest_ret &&
+    (mbisttest_i == MBIST_ONERET || mbisttest_i == MBIST_ZERORET);
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MTEST
+  if (!hreset_n_i) begin
+    mtest <= MBIST_NONE;
+    mverif <= 2'b00;
+  // If we get a CFG load test, we take it. We simply load the new values
+  // into the CFG.
+  end else if (mtestld && mrcxtrim_we_i) begin
+    mtest <= MBIST_CFGLDTEST;
+    mverif <= 2'b00;
+  // If we are in a retention test, we might have to change mode.
+  end else if (mtestld && mtest_ret) begin
+    mverif <= mbistverif_i;
+  // The others we just take the command.
+  end else if (mtestld) begin
+    mtest <= mbisttest_i;
+    mverif <= mbistverif_i;
+
+  // DUMP we only exit on a write exit.
+  end else if (mtest == MBIST_DUMP) begin
+    if (mbist_i && mbisttest_i == MBIST_EXIT) mtest <= MBIST_NONE;
+  // For RET, we only exit if we reached verif 01.
+  end else if (mtest_ret && mbist_done_en && mverif == 2'b01) begin
+    mtest <= MBIST_NONE;
+  // The remainder ones exit when we see the done.
+  end else if (mbist_done_en && !mtest_ret) begin
+    mtest <= MBIST_NONE;
+
+  // Some tests use mtest_inc. SATRIMM and P will go to DONE.
+  end else if (mtest_inc && (mtest == MBIST_SATRIMN ||
+      mtest == MBIST_SATRIMP)) begin
+    mtest <= MBIST_SATRIM_DONE;
+  // SATRIM_DONE will just go off.
+  end else if (mtest_inc && mtest == MBIST_SATRIM_DONE) begin
+    mtest <= MBIST_NONE;
+  // The others increment.
+  end else if (mtest_inc) begin
+    mtest <= mtest + 4'd1;
+  end
+end
+assign mbist = mtest != MBIST_NONE;
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MTEST_BYPECC
+  if (!hreset_n_i) mbist_testecc <= 1'b0;
+  else if (mbist_testecc_ld) mbist_testecc <= 1'b1;
+  else if (mbist_done_en) mbist_testecc <= 1'b0;
+end
+
+assign mtest_wr = mtest == MBIST_WR0 || mtest == MBIST_WR1 ||
+  mtest_diag || mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN ||
+  mtest == MBIST_CKBD || mtest == MBIST_ICKBD ||
+  mtest == MBIST_VBITD && vbit_inv || mtest == MBIST_VBITU && !vbit_inv;
+assign mtest_keep_nvr =
+  mtest == MBIST_NVRERS || mtest == MBIST_NVRERS_ECC;
+assign mtest_arrayonly =
+  mtest == MBIST_CERS || mtest == MBIST_CERS_ECC ||
+  vbit_phase != VBITPH_INIT_2 && vbit_phase != VBITPH_INV_2 &&
+  (mtest == MBIST_VBITD || mtest == MBIST_VBITU);
+assign mtest_start_sers =
+  mtest_keep_nvr || mtest == MBIST_SERS || mtest == MBIST_SERS_ECC;
+assign mtest_start_cers = mtest_arrayonly ||
+  mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN;
+assign mtest_read = mtest == MBIST_RD0 || mtest == MBIST_RD1;
+assign mtest_wers = mtest == MBIST_WR1 ||
+  mtest == MBIST_VBITD && !vbit_inv || mtest == MBIST_VBITU && vbit_inv;
+assign mtest_diag = mtest == MBIST_WLK0 || mtest == MBIST_WLK1;
+assign mtest_cfg = mtest == MBIST_CFGRSTTEST || mtest == MBIST_CFG1TEST ||
+  mtest == MBIST_CFGSETTEST || mtest == MBIST_CFG0TEST;
+assign mtest_bypecc = mtest == MBIST_WR1 || mtest == MBIST_WR0
+  || mtest == MBIST_CERS || mtest == MBIST_NVRERS || mtest == MBIST_CKBD
+  || mtest == MBIST_SERS || mtest == MBIST_ICKBD
+  || mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN
+  || mtest == MBIST_SATRIM_DONE
+  || mtest == MBIST_VBITD || mtest == MBIST_VBITU || mtest == MBIST_RD0
+  || mtest == MBIST_RD1;
+assign mtest_wexit = mtest == MBIST_ONERET ||
+   mtest == MBIST_ZERORET || mtest == MBIST_DUMP;
+assign mtest_search = mtest == MBIST_SATRIMP || mtest == MBIST_SATRIMN ||
+   mtest == MBIST_SATRIM_DONE || mtest == MBIST_VBITU || mtest == MBIST_VBITD;
+assign mtest_ret = mtest == MBIST_ONERET || mtest == MBIST_ZERORET;
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MBIST_DONE
+  if (!hreset_n_i) mbist_done_o <= 1'b0;
+  else if (mbist_done_en) mbist_done_o <= 1'b1;
+  else mbist_done_o <= 1'b0;
+end
+
+always @(*) begin : BLK_MDUMP
+  case(mbisttest_i)
+    5'b00000: mdump = {1'b0, satrim[3:0]};
+    5'b00001: mdump = {3'b000, satrim[5:4]};
+    5'b00010: mdump = {1'b0, vbitu[3:0]};
+    5'b00011: mdump = {3'b000, vbitu[5:4]};
+    5'b00100: mdump = {1'b0, vbitd[3:0]};
+    5'b00101: mdump = {3'b000, vbitd[5:4]};
+    5'b00110: mdump = {1'b0, zcal[3:0]};
+    5'b00111: mdump = {5'b00000};
+    5'b01000: mdump = {1'b0, fbc[3:0]};
+    5'b01001: mdump = {1'b0, fbc[7:4]};
+    5'b01010: mdump = {1'b0, fbc[11:8]};
+    5'b01011: mdump = {1'b0, fbc[15:12]};
+    5'b01100: mdump = {1'b0, fbc_nvr[3:0]};
+    5'b01101: mdump = {1'b0, fbc_nvr[7:4]};
+    5'b01110: mdump = {1'b0, fbc_fatal[3:0]};
+    5'b01111: mdump = {1'b0, fbc_fatal[7:4]};
+    5'b10000: mdump = redcel[0][4:0];
+    5'b10001: mdump = redcel[0][9:5];
+    5'b10010: mdump = redcel[1][4:0];
+    5'b10011: mdump = redcel[1][9:5];
+    5'b10100: mdump = redcel[2][4:0];
+    5'b10101: mdump = redcel[2][9:5];
+    default: mdump = 5'd0;
+  endcase
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_MPASS
+  if (!hreset_n_i) mpass <= MBIST_NONE;
+
+  // If we get the start we load zero into MPASS.
+  else if (mtestld) mpass <= MBIST_NONE;
+  // If we get a clear request, we clear the pass code.
+  else if (mbist_clr) mpass <= MBIST_NONE;
+
+  // For Fail requests we take the code of the test that failed.
+  else if (mbist_fail_ld) mpass <= mtest;
+  // For the retention mode, we need to set a value when we reach the time
+  // the tester can begin the next test.
+  else if (mbist_done_en && mtest_ret && mverif == 2'b00) mpass <= mtest;
+  // For the others the mbist must have passed or there was no check.
+  else if (mbist_done_en && mtest_ret) mpass <= MBIST_NONE;
+
+  // In dump mode we keep on returning the dump value.
+  else if (mbist_i && mtest == MBIST_DUMP) mpass <= mdump;
+
+  // For yield analysis we might want to monitor the failure count. We cannot
+  // do this in:
+  // - a test with exit or a retention test as these work differently
+  // - a search test where the failures show up on occasion
+  // - in repair mode where we report only if there are too many failures to
+  //     repair.
+  else if (mbist && !mtest_ret && !mtest_wexit && !mtest_search
+      && mverif != MBIST_REPAIR && mtest != MBIST_DUMP) begin
+    if (fbc_fatal[7:5] != 3'b000) mpass <= 5'b11111;
+    else mpass <= fbc_fatal[4:0];
+  end
+end
+
+// We have different options of what is expected for the verify.
+assign mtest_noverif = mverif == MBIST_NOVERIF;
+assign mtest_fullverif = mverif == MBIST_FULLVERIF || mverif == MBIST_REPAIR;
+
+////////////////////////////////////////////////////////////////////////////////
+// Redundancy Repair
+////////////////////////////////////////////////////////////////////////////////
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_REDUNDABCY
+  if(!hreset_n_i) begin
+    redundancy_act <= 1'b0;
+    redcel[0] <= {YSWIDTH-1{1'b0}};
+    redcel[1] <= {YSWIDTH-1{1'b0}};
+    redcel[2] <= {YSWIDTH-1{1'b0}};
+
+  // Redundancy act tells us when we are testing the redundancy. When we
+  // enable it we clear the cells.
+  end else if (redundancy_clr) begin
+    redundancy_act <= 1'b0;
+    redcel[0] <= {YSWIDTH-1{1'b0}};
+    redcel[1] <= {YSWIDTH-1{1'b0}};
+    redcel[2] <= {YSWIDTH-1{1'b0}};
+  end else if (redundancy_dis) begin
+    redundancy_act <= 1'b0;
+  end else if (redundancy_en) begin
+    redundancy_act <= 1'b1;
+    redcel[0] <= {YSWIDTH-1{1'b0}};
+    redcel[1] <= {YSWIDTH-1{1'b0}};
+    redcel[2] <= {YSWIDTH-1{1'b0}};
+
+  // In redundancy act, uncorrectable errors are recorded with a token.
+  end else if (tag_en && redundancy_act && waddr_x[1:0]==2'b00) begin
+    redcel[0] <= REDUNDANCY_BAD;
+  end else if (tag_en && redundancy_act && waddr_x[1:0]==2'b01) begin
+    redcel[1] <= REDUNDANCY_BAD;
+  end else if (tag_en && redundancy_act) begin
+    redcel[2] <= REDUNDANCY_BAD;
+
+  // When not in redundancy, a repair is loaded with the x address and enable
+  // high.
+  end else if (tag_en && repaircell == 2'b00) begin
+    redcel[0][YSEN] <= 1'b1;
+    redcel[0][X_WIDTH-1:0] <= waddr_x;
+  end else if (tag_en && repaircell == 2'b01) begin
+    redcel[1][YSEN] <= 1'b1;
+    redcel[1][X_WIDTH-1:0] <= waddr_x;
+  end else if (tag_en) begin
+    redcel[2][YSEN] <= 1'b1;
+    redcel[2][X_WIDTH-1:0] <= waddr_x;
+
+  // If we get a manual CFG write we just take the value.
+  end else if (cfgwrok_o && otpaddr == 4'd4) begin
+    redcel[0][4:0] <= cfgdin_i[31:27];
+  end else if (cfgwrok_o && otpaddr == 4'd5) begin
+    redcel[0][9:5] <= cfgdin_i[4:0];
+    redcel[1] <= cfgdin_i[14:5];
+    redcel[2] <= cfgdin_i[24:15];
+  end else if (mrcxred_we_i != 3'b000) begin
+    if (mrcxred_we_i[0]) redcel[0] <= mrcxred0_i;
+    if (mrcxred_we_i[1]) redcel[1] <= mrcxred1_i;
+    if (mrcxred_we_i[2]) redcel[2] <= mrcxred2_i;
+  end
+end
+
+// We identify the next cell free using a simple priority encoder.
+always @(*) begin : BLK_MBIST_REPAIR
+  if (redcel[0][YSEN] == 1'b0 && redcel[0] != REDUNDANCY_BAD)
+    repaircell = 2'b00;
+  else if (redcel[1][YSEN] == 1'b0 && redcel[1] != REDUNDANCY_BAD)
+    repaircell = 2'b01;
+  else if (redcel[2][YSEN] == 1'b0 && redcel[2] != REDUNDANCY_BAD)
+    repaircell = 2'b10;
+  else repaircell = REDUNDANCY_FULL;
+end
+
+// A same element might have some bits that fail low and others that fail high
+// so if one element is already tagged, we skip it.
+always @(*) begin : BLK_ALREADY_REPAIRED
+  if (redcel[0][YSEN] == 1'b1 && redcel[0][X_WIDTH-1:0] == waddr_x)
+    already_repaired = 1'b1;
+  else if (redcel[1][YSEN] == 1'b1 && redcel[1][X_WIDTH-1:0] == waddr_x)
+    already_repaired = 1'b1;
+  else if (redcel[2][YSEN] == 1'b1 && redcel[2][X_WIDTH-1:0] == waddr_x)
+    already_repaired = 1'b1;
+  else already_repaired = 1'b0;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_BADX
+  if (!hreset_n_i) badx <= 1'b0;
+  else if (badx_clr) badx <= 1'b0;
+  else if (badx_set) badx <= 1'b1;
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_UNREPAIRABLE
+  if (!hreset_n_i) unrepairable <= 1'b0;
+  else if (unrepairable_clr) unrepairable <= 1'b0;
+  else if (unrepairable_set) unrepairable <= 1'b1;
+end
+
+////////////////////////////////////////////////////////////////////////////////
+// FBC
+////////////////////////////////////////////////////////////////////////////////
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_FBC
+  if (!hreset_n_i) begin
+    fbc <= {FBC_WIDTH{1'b0}};
+    fbc_nvr <= {FBCNVR_WIDTH{1'b0}};
+    fbc_fatal <= 8'd0;
+  end else if (fbc_clr) begin
+    fbc <= {FBC_WIDTH{1'b0}};
+    fbc_nvr <= {FBCNVR_WIDTH{1'b0}};
+    fbc_fatal <= 8'd0;
+  end else if (fbc_cnt && mtmen_o && fbc_next[FBCNVR_WIDTH]) begin
+    fbc_nvr <= {FBCNVR_WIDTH{1'b1}};
+    if (fbc_here > 7'd1 || !meccbyps_o && fbc_here != 7'd0)
+      fbc_fatal <= fbc_fatal + 8'd1;
+  end else if (fbc_cnt && mtmen_o) begin
+    fbc_nvr <= fbc_next[FBCNVR_WIDTH-1:0];
+    if (fbc_here > 7'd1 || !meccbyps_o && fbc_here != 7'd0)
+      fbc_fatal <= fbc_fatal + 8'd1;
+  end else if (fbc_cnt && fbc_next[FBC_WIDTH]) begin
+    fbc <= {FBC_WIDTH{1'b1}};
+    if (fbc_here > 7'd1 || !meccbyps_o && fbc_here != 7'd0)
+      fbc_fatal <= fbc_fatal + 8'd1;
+  end else if (fbc_cnt) begin
+    fbc <= fbc_next[FBC_WIDTH-1:0];
+    if (fbc_here > 7'd1 || !meccbyps_o && fbc_here != 7'd0)
+      fbc_fatal <= fbc_fatal + 8'd1;
+  end
+end
+
+always @(*) begin : BLK_FBC_SUM
+  // FBC ADD is a simple sum of the errors encountered.
+  fbc_add = fbc + fbc_nvr;
+
+  // We want to do a saturated add, so we raise a flag if the sum was large.
+  // So if one of the counters hit all ones, fbc_nvr or fbc, we do not know
+  // the real size. We also raise a flag if the MSB of fbc_add went high, as
+  // that means there was an overflow.
+  fbc_large = fbc_add[FBC_WIDTH] || fbc_nvr == {FBCNVR_WIDTH{1'b1}} ||
+    fbc == {FBC_WIDTH{1'b1}};
+
+  // fbc_sum then is the saturated sum. If fbc_add msb was high, fbc_sum will
+  // be all high (staturated). If not, we take the fbc value.
+  if (fbc_add[FBC_WIDTH]) fbc_sum = {FBC_WIDTH{1'b1}};
+  else fbc_sum = fbc_add[FBC_WIDTH-1:0];
+
+  // And then we can do the other calculations. We want to find out if there
+  // was a change. So we compare the current fbc_sum with the previous one and
+  // calculate the modulus of the difference.
+  if (fbc_sum > lastfbc[0]) fbc_delta = fbc_sum - lastfbc[0];
+  else fbc_delta = lastfbc[0] - fbc_sum;
+end
+
+assign fbc_gotworse = fbc_sum > lastfbc[0] && lastfbc[0] > lastfbc[1];
+
+// We need a history of the last fbc sum values. Each time we get another sum,
+// we shift down the previous values.
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_LASTFBC
+  if (!hreset_n_i) begin
+    lastfbc[0] <= {FBC_WIDTH{1'b0}};
+    lastfbc[1] <= {FBC_WIDTH{1'b0}};
+  end else if (lastfbc_store) begin
+    lastfbc[0] <= fbc_sum;
+    lastfbc[1] <= lastfbc[0];
+  end
+end
+
+assign fbc_uncorr = fbc_cnt && fbc_here > 7'd1;
+assign fbc_next = ((mtmen_o) ? fbc_nvr : fbc) + fbc_here;
+
+// We need to know what is the expected pattern in a MBIST verify. We then
+// try to calculate that here. The value depends on which test we are running.
+// We calculate the reference regardless of the ECC. Then the check will ignore
+// the ECC part if it does not apply to the test.
+integer i;
+always @(*) begin : BLK_FBC_FAIL
+  case (mtest)
+    // For WR0, we expect the data to be all zeroes.
+    MBIST_WR0: fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+    // SATRIM uses a checkerboard pattern. Depending on the X lsb we might
+    // want 01 or 10.
+    MBIST_SATRIMP, MBIST_SATRIMN: begin
+      if (waddr_x[0])
+        fbc_ref = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b10}};
+      else fbc_ref = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b01}};
+    end
+    // Like SATRIM, the checkerboard tests look for the checkerboard pattern.
+    // If the fullverif option was requested, this means we are checking after
+    // both checkerboard and inverse checkerboard, so the result should be
+    // all programmed.
+    MBIST_CKBD, MBIST_CKBD_ECC: begin
+      if (mtest_fullverif) fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+      else if (waddr_x[0])
+        fbc_ref = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b10}};
+      else fbc_ref = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b01}};
+    end
+    // The inverse checkerboard will look the same as the checkerboard pattern
+    // but with an inverse pattern. We also check for the fullverif option.
+    MBIST_ICKBD, MBIST_ICKBD_ECC: begin
+      if (mtest_fullverif) fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+      else if (waddr_x[0])
+        fbc_ref = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b01}};
+      else fbc_ref = {(ECC_WIDTH + DATA_WIDTH*MW_WORDS)/2{2'b10}};
+    end
+    // In the walk0 and walk1 we also use the fullverif option. If it is set,
+    // we expect to see the pattern all programmed. In the regular mode we use
+    // the datawr buf to know where the walking 1 or 0 is.
+    MBIST_WLK0: begin
+      if (mtest_fullverif) fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+      else if (waddr_is_diag) fbc_ref = ~datawr;
+      else fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b1}};
+    end
+    MBIST_WLK1: begin
+      if (mtest_fullverif) fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+      else if (waddr_is_diag) fbc_ref = datawr;
+      else fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+    end
+
+    // On the read tests, we expect to see all ones are all zeroes.
+    MBIST_RD0: fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b0}};
+    MBIST_RD1: fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b1}};
+
+    // VBITD also uses it's pattern to check the value. In this case it is
+    // looking for all zero or all ones.
+    MBIST_VBITD: fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{~vbit_inv}};
+    MBIST_VBITU: fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{vbit_inv}};
+
+    // For the others, should be the WR1 case plus the erase cases, we expect
+    // all ones.
+    default: fbc_ref = {ECC_WIDTH + DATA_WIDTH*MW_WORDS{1'b1}};
+  endcase
+
+  // fbc_err now is used to find which bits are not the correct. For this we do
+  // a simple XOR. Note that if we are bypassing ECC, we check it all. If we
+  // are instead using ECC, the upper bits are undefined and we check only the
+  // data bits.
+  if (meccbyps_o) fbc_err = fbc_ref ^ datard;
+  else fbc_err =
+    (fbc_ref ^ datard) & {{ECC_WIDTH{1'b0}}, {DATA_WIDTH*MW_WORDS{1'b1}}};
+
+  // Now we can calculate how many errors were seen in the current word.
+  for (i = 0; i < TRIPPLE_WIDTH; i = i + 1) begin
+    fbc_tripple[i*2+:2] = fbc_err[i*3] + fbc_err[i*3+1] + fbc_err[i*3+2];
+  end
+  fbc_here = {FBC_FAIL_WIDTH{1'b0}};
+  for (i = 0; i < TRIPPLE_WIDTH; i = i + 1) begin
+    fbc_here = fbc_here + fbc_tripple[i*2+:2];
+  end
+end
+
+// fbc_fail is to detect if we have a violation which does not meet the
+// quality criteria.
+assign fbc_fail = fbc_fatal > 8'd1 || fbc_nvr > FBC_NVR_TARG || fbc > FBC_TARG;
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_SATRIM
+  if (!hreset_n_i) satrim <= SATRIM_MID;
+  else if (mrcxtrim_we_i) satrim <= mrcxtrim_satrim_i;
+  else if (satrim_clr) satrim <= SATRIM_MID;
+  else if (satrim_max_ld) satrim <= SATRIM_MAX;
+  else if (satrim_min_ld) satrim <= SATRIM_MIN;
+  else if (satrim_offset_inc) satrim <= satrim + SATRIM_OFFSET;
+  else if (satrim_offset_dec) satrim <= satrim - SATRIM_OFFSET;
+  else if (satrim_inc2) satrim <= satrim + 6'd2;
+  else if (satrim_dec2) satrim <= satrim - 6'd2;
+  else if (satrim_inc) satrim <= satrim + 6'd1;
+  else if (satrim_dec) satrim <= satrim - 6'd1;
+  else if (cfgwrok_o && otpaddr == 4'd4) satrim <= cfgdin_i[25:20];
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_VBITU
+  if (!hreset_n_i) vbitu <= VBITU_START;
+  else if (mrcxtrim_we_i) vbitu <= mrcxtrim_vbitu_i;
+  else if (vbitu_clr) vbitu <= VBITU_START;
+  else if (vbitu_mid_ld) vbitu <= VBITU_MID;
+  else if (vbitu_offset_inc) vbitu <= vbitu + VBITU_OFFSET;
+  else if (vbitu_offset_dec) vbitu <= vbitu - VBITU_OFFSET;
+  else if (vbitu_inc) vbitu <= vbitu + 6'd1;
+  else if (vbitu_dec) vbitu <= vbitu - 6'd1;
+  else if (cfgwrok_o && otpaddr == 4'd2) vbitu <= cfgdin_i[12:7];
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_VBITD
+  if (!hreset_n_i) vbitd <= VBITD_START;
+  else if (mrcxtrim_we_i) vbitd <= mrcxtrim_vbitd_i;
+  else if (vbitd_clr) vbitd <= VBITD_START;
+  else if (vbitd_mid_ld) vbitd <= VBITD_MID;
+  else if (vbitd_offset_inc) vbitd <= vbitd + VBITD_OFFSET;
+  else if (vbitd_offset_dec) vbitd <= vbitd - VBITD_OFFSET;
+  else if (vbitd_inc) vbitd <= vbitd + 6'd1;
+  else if (vbitd_dec) vbitd <= vbitd - 6'd1;
+  else if (cfgwrok_o && otpaddr == 4'd2) vbitd <= cfgdin_i[6:1];
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_ZCAL
+  if (!hreset_n_i) zcal <= ZCAL_START;
+  else if (mrcxtrim_we_i) zcal <= mrcxtrim_zcal_i;
+  else if (zcal_ld) zcal <= mbisttest_i[3:0];
+  else if (cfgwrok_o && otpaddr == 4'd3) zcal <= cfgdin_i[4:1];
+end
+
+always @(posedge hclk_i or negedge hreset_n_i) begin : BLK_VBITPH_PHASE
+  if (!hreset_n_i) vbit_phase <= VBITPH_INIT;
+  else if (vbit_clr) vbit_phase <= VBITPH_INIT;
+  else if (vbit_next) case (vbit_phase)
+    VBITPH_INIT: vbit_phase <= VBITPH_INV;
+    VBITPH_INV:
+      if (vbit_up) vbit_phase <= VBITPH_UP;
+      else vbit_phase <= VBITPH_DOWN;
+    VBITPH_DOWN: vbit_phase <= VBITPH_DOWN_INV;
+    VBITPH_UP: vbit_phase <= VBITPH_UP_INV;
+    VBITPH_DOWN_INV: begin
+      if (vbit_stagedone) vbit_phase <= VBITPH_INIT_2;
+      else vbit_phase <= VBITPH_DOWN;
+    end
+    VBITPH_UP_INV: begin
+      if (vbit_stagedone) vbit_phase <= VBITPH_INIT_2;
+      else vbit_phase <= VBITPH_UP;
+    end
+    VBITPH_INIT_2: vbit_phase <= VBITPH_INV_2;
+    VBITPH_INV_2: vbit_phase <= VBITPH_INIT_2;
+  endcase
+end
+
+assign vbit_inv = vbit_phase == VBITPH_INV || vbit_phase == VBITPH_INV_2 ||
+  vbit_phase == VBITPH_UP_INV || vbit_phase == VBITPH_DOWN_INV;
+
+////////////////////////////////////////////////////////////////////////////////
+`ifndef SYNTHESIS
+`ifndef LINT
+/*
+property p_ttmh;
+  @(posedge hclk_i) disable iff !hreset_n_i
+    $fell(mrd) |-> counter == 16'd9;
+endproperty
+assert property p_ttmh;
+
+property p_trw;
+  @(posedge hclk_i) disable iff !hreset_n_i
+    $fell(merase_o) or $fell(mprog_o) or $fell(msce_o) or $fell(mchip_o)
+      |-> counter == 16'd300;
+endproperty
+assert property p_trw;
+*/
+
+
+// we want to know the chances of having a request stored and having the wrong
+// data stored. We also need the average wait time.
+integer cycs;
+integer totcycs;
+integer reads;
+real rate;
+integer discard;
+reg nextseen;
+integer match;
+integer memreads;
+initial begin : BLK_CNTDEL
+   cycs = 0;
+   reads = 0;
+   discard = 0;
+   nextseen = 0;
+   match = 0;
+   totcycs = 0;
+   rate = 0.0;
+   memreads = 0;
+   forever begin
+      @(posedge hclk_i);
+
+      if (mrd) memreads = memreads + 1;
+
+      // If we see cycs greater than zero and hready is low, we have a read that
+      // is pending, so all we do is count the cycle.
+      if (cycs > 0 && !hready_o) begin
+         cycs = cycs + 1;
+      // If cycs is greater than zero and there is no other request in thi
+      // cycle, we then need to register that a read finished and we count it.
+      end else if (cycs > 0) begin
+         totcycs = totcycs + cycs;
+         cycs = 0;
+         reads = reads + 1;
+         rate = (totcycs + 0.0) / reads;
+      end
+
+      // Then we check if there is a new read in this cycle. If there is, we
+      // set cycs to 1.
+      if (hact && hready_o) begin
+         cycs = 'd1;
+         // If we had a cahce match, we count it.
+         if (saddr_match) match = match + 1;
+         if (nextseen && !saddr_next_match) discard = discard + 1;
+         nextseen = mrd_next_en;
+      end
+      // We want to add the number of next failed matches. Then, anytime we see
+      // a mrd next we raise a flag.
+      else if (mrd_next_en) nextseen = 1'b1;
+   end
+end
+`endif
+`endif
+
+endmodule
